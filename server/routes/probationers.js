@@ -21,10 +21,10 @@ async function logHistory(conn, { probationerId, changedBy, field, oldValue, new
   );
 }
 
-// signaturesDir: absolute path (app.getPath('userData')/signatures) — passed
-// in from electron/main.js since only the main process knows the userData
-// location; this module stays agnostic of Electron itself.
-function buildProbationersRouter(settingsStore, signaturesDir) {
+// signaturesDir/photosDir: absolute paths (app.getPath('userData')/signatures,
+// .../photos) — passed in from electron/main.js since only the main process
+// knows the userData location; this module stays agnostic of Electron itself.
+function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
   const router = express.Router();
   router.use(authenticate(settingsStore));
 
@@ -283,6 +283,55 @@ function buildProbationersRouter(settingsStore, signaturesDir) {
       }
       const pngBase64 = fs.readFileSync(probationer.signature_path).toString('base64');
       res.json({ pngBase64 });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Reference photo on file — same shape as the signature endpoints above,
+  // but accepts whatever image type the officer uploads (a photo isn't
+  // hand-drawn on a canvas like the signature, so it isn't always PNG) and
+  // stores it under its own directory (photosDir) rather than signaturesDir.
+  router.post('/:id/photo', async (req, res, next) => {
+    try {
+      const probationer = await loadProbationer(req.params.id);
+      if (!probationer) return res.status(404).json({ error: 'Not found' });
+      if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
+
+      const { dataUrl } = req.body || {};
+      if (!dataUrl) return res.status(400).json({ error: 'dataUrl is required' });
+
+      const match = /^data:image\/(png|jpe?g|webp);base64,(.+)$/.exec(dataUrl);
+      if (!match) return res.status(400).json({ error: 'dataUrl must be a base64 PNG/JPEG/WEBP image' });
+      const ext = match[1].replace('jpeg', 'jpg');
+
+      fs.mkdirSync(photosDir, { recursive: true });
+      const filePath = path.join(photosDir, `${probationer.id}.${ext}`);
+
+      // Extension can change between uploads (e.g. jpg replaced by png) —
+      // remove any stale file under the old name so it doesn't linger on disk.
+      if (probationer.photo_path && probationer.photo_path !== filePath && fs.existsSync(probationer.photo_path)) {
+        fs.unlinkSync(probationer.photo_path);
+      }
+
+      fs.writeFileSync(filePath, Buffer.from(match[2], 'base64'));
+      await db.getPool().query('UPDATE probationers SET photo_path = ? WHERE id = ?', [filePath, req.params.id]);
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/:id/photo', async (req, res, next) => {
+    try {
+      const probationer = await loadProbationer(req.params.id);
+      if (!probationer || !probationer.photo_path || !fs.existsSync(probationer.photo_path)) {
+        return res.status(404).json({ error: 'No photo on file' });
+      }
+      const ext = path.extname(probationer.photo_path).slice(1) || 'jpg';
+      const mime = ext === 'jpg' ? 'jpeg' : ext;
+      const base64 = fs.readFileSync(probationer.photo_path).toString('base64');
+      res.json({ dataUrl: `data:image/${mime};base64,${base64}` });
     } catch (err) {
       next(err);
     }

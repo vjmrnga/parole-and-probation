@@ -10,7 +10,12 @@ const { Text } = Typography;
 // src/signature.js exposed, just as a component instead of a factory
 // function. Also wires the same Wacom pad IPC calls
 // (getPadStatus/captureFromPad/onPadStatusChanged) the reference project used.
-const SignatureCapture = forwardRef(function SignatureCapture({ extraActions, existingSignature }, ref) {
+//
+// signerName is required to actually use the pad — Wacom's SDK rejects the
+// capture dialog if "Who" is blank (the caller passes the selected
+// probationer's name; the Wacom button stays disabled until it's set).
+// reason is optional context shown in the pad's capture dialog.
+const SignatureCapture = forwardRef(function SignatureCapture({ extraActions, existingSignature, signerName, reason }, ref) {
   const canvasRef = useRef(null);
   const padRef = useRef(null);
   const [padStatus, setPadStatus] = useState({ connected: false, model: null });
@@ -58,7 +63,14 @@ const SignatureCapture = forwardRef(function SignatureCapture({ extraActions, ex
   }));
 
   async function captureFromPad() {
-    const result = await window.api.captureFromPad({ signerName: '', reason: 'Case signature' });
+    // Wacom's SDK requires a non-blank "Who" (signer name) — it rejects the
+    // capture dialog outright if this is empty, so this always needs to be
+    // filled in by the caller (the selected probationer's name).
+    if (!signerName) {
+      alert('Select a probationer before capturing from the pad.');
+      return;
+    }
+    const result = await window.api.captureFromPad({ signerName, reason: reason || 'Signature capture' });
     if (result.ok && result.pngBase64) {
       const dataUrl = result.pngBase64.startsWith('data:') ? result.pngBase64 : `data:image/png;base64,${result.pngBase64}`;
       await padRef.current.fromDataURL(dataUrl);
@@ -78,7 +90,7 @@ const SignatureCapture = forwardRef(function SignatureCapture({ extraActions, ex
           {padStatus.connected ? `Pad connected (${padStatus.model || 'unknown model'})` : 'No pad detected — sign below with mouse/touch'}
         </Text>
       </Space>
-      <div style={{ display: 'flex', gap: 16, marginBottom: 10, width: '100%' }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 10, width: '100%', maxWidth: 700, margin: '0 auto 10px' }}>
         {existingSignature && (
           <div style={{ flex: 1, minWidth: 0 }}>
             <Text type="secondary" style={{ display: 'block', marginBottom: 4, fontSize: 12 }}>On file</Text>
@@ -101,7 +113,7 @@ const SignatureCapture = forwardRef(function SignatureCapture({ extraActions, ex
       </div>
       <Space wrap style={{ width: '100%', justifyContent: 'center' }}>
         <Button size="large" onClick={() => padRef.current.clear()}>Clear</Button>
-        <Button size="large" disabled={!padStatus.connected} onClick={captureFromPad}>Capture from Wacom Pad</Button>
+        <Button size="large" disabled={!padStatus.connected || !signerName} onClick={captureFromPad}>Capture from Wacom Pad</Button>
         {extraActions}
       </Space>
     </div>

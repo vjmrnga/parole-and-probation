@@ -56,9 +56,11 @@
       "shared/**/*",
       "renderer/dist/**/*",
       "wacom/**/*",
+      "scanner/**/*",
       "build/icon.png",
       "package.json",
-      "!bridge/**"
+      "!bridge/**",
+      "!scanner-bridge/**"
     ],
     "extraResources": [
       {
@@ -67,6 +69,15 @@
         "filter": [
           "SignatureBridge.exe",
           "SignatureBridge.exe.config",
+          "*.dll"
+        ]
+      },
+      {
+        "from": "scanner-bridge/bin/Release/net48",
+        "to": "scanner-bridge",
+        "filter": [
+          "ScannerBridge.exe",
+          "ScannerBridge.exe.config",
           "*.dll"
         ]
       }

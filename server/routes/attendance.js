@@ -1,4 +1,6 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const dayjs = require('dayjs');
 const db = require('../db');
 const { authenticate } = require('../middleware/auth');
@@ -15,7 +17,12 @@ function isAssignedOrAdmin(req, probationer) {
 
 // Mounted twice from server/app.js: under /probationers/:id/attendance (list/create)
 // and under /attendance (edit single entry by id) — see app.js for the mount points.
-function buildAttendanceRouter(settingsStore) {
+//
+// signaturesDir is shared with the probationer reference-signature endpoints
+// (server/routes/probationers.js) — per-visit signatures are told apart from
+// the one on-file reference signature by filename (attendance-<entryId>.png
+// vs <probationerId>.png), so there's no need for a separate directory.
+function buildAttendanceRouter(settingsStore, signaturesDir) {
   const router = express.Router({ mergeParams: true });
   router.use(authenticate(settingsStore));
 
@@ -36,18 +43,37 @@ function buildAttendanceRouter(settingsStore) {
       if (!probationer) return res.status(404).json({ error: 'Not found' });
       if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
 
-      const { logDate, notes } = req.body || {};
+      const { logDate, notes, pngBase64, gadTopic } = req.body || {};
       if (!logDate) return res.status(400).json({ error: 'logDate is required' });
+      // Every attendance entry needs its own signature captured at the visit
+      // — separate from probationers.signature_path, the one-time reference
+      // signature the officer compares it against (see SignatureAttendanceView.jsx).
+      if (!pngBase64) return res.status(400).json({ error: 'pngBase64 (signature for this visit) is required' });
 
       const [result] = await db
         .getPool()
-        .query('INSERT INTO attendance_log (probationer_id, log_date, notes, recorded_by) VALUES (?, ?, ?, ?)', [
+        .query('INSERT INTO attendance_log (probationer_id, log_date, notes, gad_topic, recorded_by) VALUES (?, ?, ?, ?, ?)', [
           req.params.id,
           logDate,
           notes || null,
+          (gadTopic && gadTopic.trim()) || null,
           req.user.id,
         ]);
-      res.status(201).json({ id: result.insertId, probationer_id: req.params.id, log_date: logDate, notes: notes || null });
+
+      fs.mkdirSync(signaturesDir, { recursive: true });
+      const filePath = path.join(signaturesDir, `attendance-${result.insertId}.png`);
+      const data = pngBase64.replace(/^data:image\/png;base64,/, '');
+      fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
+      await db.getPool().query('UPDATE attendance_log SET signature_path = ? WHERE id = ?', [filePath, result.insertId]);
+
+      res.status(201).json({
+        id: result.insertId,
+        probationer_id: req.params.id,
+        log_date: logDate,
+        notes: notes || null,
+        gad_topic: (gadTopic && gadTopic.trim()) || null,
+        signature_path: filePath,
+      });
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'An entry already exists for that date' });
       next(err);
@@ -57,7 +83,7 @@ function buildAttendanceRouter(settingsStore) {
   return router;
 }
 
-function buildAttendanceEntryRouter(settingsStore) {
+function buildAttendanceEntryRouter(settingsStore, signaturesDir) {
   const router = express.Router();
   router.use(authenticate(settingsStore));
 
@@ -120,6 +146,25 @@ function buildAttendanceEntryRouter(settingsStore) {
     }
   });
 
+  router.get('/:entryId/signature', async (req, res, next) => {
+    try {
+      const [entryRows] = await db.getPool().query('SELECT * FROM attendance_log WHERE id = ?', [req.params.entryId]);
+      const entry = entryRows[0];
+      if (!entry) return res.status(404).json({ error: 'Not found' });
+
+      const probationer = await loadProbationer(entry.probationer_id);
+      if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
+
+      if (!entry.signature_path || !fs.existsSync(entry.signature_path)) {
+        return res.status(404).json({ error: 'No signature on file for this entry' });
+      }
+      const pngBase64 = fs.readFileSync(entry.signature_path).toString('base64');
+      res.json({ pngBase64 });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.patch('/:entryId', async (req, res, next) => {
     try {
       const [entryRows] = await db.getPool().query('SELECT * FROM attendance_log WHERE id = ?', [req.params.entryId]);
@@ -129,10 +174,20 @@ function buildAttendanceEntryRouter(settingsStore) {
       const probationer = await loadProbationer(entry.probationer_id);
       if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
 
-      const { notes } = req.body || {};
-      if (notes === undefined) return res.status(400).json({ error: 'notes is required' });
+      const { notes, gadTopic } = req.body || {};
+      if (notes === undefined && gadTopic === undefined) {
+        return res.status(400).json({ error: 'notes or gadTopic is required' });
+      }
 
-      await db.getPool().query('UPDATE attendance_log SET notes = ? WHERE id = ?', [notes, req.params.entryId]);
+      if (notes !== undefined) {
+        await db.getPool().query('UPDATE attendance_log SET notes = ? WHERE id = ?', [notes, req.params.entryId]);
+      }
+      if (gadTopic !== undefined) {
+        await db.getPool().query('UPDATE attendance_log SET gad_topic = ? WHERE id = ?', [
+          (gadTopic && gadTopic.trim()) || null,
+          req.params.entryId,
+        ]);
+      }
       res.json({ ok: true });
     } catch (err) {
       next(err);

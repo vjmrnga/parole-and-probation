@@ -7,6 +7,9 @@ renderer/dist/
 
 # Electron-builder / native build artifacts
 bridge/bin/
+bridge/obj/
+scanner-bridge/bin/
+scanner-bridge/obj/
 
 # Logs
 npm-debug.log*

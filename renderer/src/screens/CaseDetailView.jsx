@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import {
-  AutoComplete, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber, message,
+  AutoComplete, Avatar, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber, message,
   Radio, Row, Select, Space, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
+import { UserOutlined } from '@ant-design/icons';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
 import { STAGE_COLORS, STATUS_COLORS } from '../constants/statusColors.js';
 import GeneratePsirModal from '../components/GeneratePsirModal.jsx';
 import GenerateFinalReportModal from '../components/GenerateFinalReportModal.jsx';
+import DocumentChecklist from '../components/DocumentChecklist.jsx';
 import {
   GENDER_PREF_OPTIONS, LAW_TYPES, NATIONALITY_OPTIONS, PRIOR_RECORD_AGENCIES,
   RELIGION_OPTIONS, SOCIO_ECONOMIC_GROUPS,
@@ -40,6 +42,7 @@ export default function CaseDetailView() {
   const isAdmin = user?.role === 'admin';
 
   const [probationer, setProbationer] = useState(null);
+  const [photo, setPhoto] = useState(null);
   const [officers, setOfficers] = useState([]);
   const [history, setHistory] = useState([]);
   const [attendance, setAttendance] = useState([]);
@@ -69,6 +72,18 @@ export default function CaseDetailView() {
   async function load() {
     const p = await ApiClient.get(`/probationers/${selectedProbationerId}`);
     setProbationer(p);
+
+    if (p.photo_path) {
+      try {
+        const { dataUrl } = await ApiClient.get(`/probationers/${selectedProbationerId}/photo`);
+        setPhoto(dataUrl);
+      } catch (err) {
+        setPhoto(null);
+      }
+    } else {
+      setPhoto(null);
+    }
+
     caseForm.setFieldsValue({
       fullName: p.full_name,
       age: p.age,
@@ -138,6 +153,7 @@ export default function CaseDetailView() {
   if (!probationer) return null;
 
   const canEdit = isAdmin || user?.id === probationer.assigned_officer_id;
+  const isDetained = probationer.psir_profile?.radios?.custodial === 'Detention';
 
   async function saveCaseInfo() {
     const values = await caseForm.validateFields();
@@ -287,50 +303,66 @@ export default function CaseDetailView() {
             key: 'case',
             label: 'Case Information',
             children: (
-      <Card>
+      <Card className="case-info-form">
+        <style>{`
+          .case-info-form .ant-form-item-label > label { font-weight: 600; }
+        `}</style>
         <Form form={caseForm} layout="vertical" disabled={!canEdit}>
+          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
+            <Avatar
+              size={110}
+              shape="circle"
+              src={photo}
+              icon={<UserOutlined />}
+              style={{ flexShrink: 0, border: '1px solid #d9d9d9', background: '#f5f5f5' }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
           <Row gutter={[24, 8]}>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Full Name" name="fullName" rules={[{ required: true }]}><Input /></Form.Item>
+            <Col xs={24} sm={12}>
+              {/* required={false} only hides the red "*" mark — the rules
+                  validation stays, since saveCaseInfo() below assumes a
+                  non-blank fullName (values.fullName.trim()) and the DB
+                  column is NOT NULL. */}
+              <Form.Item label="Full Name" name="fullName" required={false} rules={[{ required: true }]}><Input /></Form.Item>
             </Col>
-            <Col xs={12} sm={12} md={8} lg={4}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Alias" name="alias"><Input /></Form.Item>
             </Col>
-            <Col xs={12} sm={6} md={4} lg={3}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Age" name="age"><InputNumber style={{ width: '100%' }} /></Form.Item>
             </Col>
-            <Col xs={12} sm={8} md={5} lg={4}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Birthdate" name="birthdate"><DatePicker style={{ width: '100%' }} /></Form.Item>
             </Col>
-            <Col xs={12} sm={6} md={4} lg={3}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Sex" name="sex">
                 <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
               </Form.Item>
             </Col>
-            <Col xs={12} sm={8} md={5} lg={4}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Marital Status" name="maritalStatus"><Input /></Form.Item>
             </Col>
 
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Docket #"><Input value={probationer.docket_number} disabled /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
             </Col>
 
-            <Col xs={24} md={12}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Address" name="address"><Input /></Form.Item>
             </Col>
-            <Col xs={24} md={12}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Offense" name="offense"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Offense Classification" name="offenseType">
                 <Select
                   allowClear
@@ -339,31 +371,37 @@ export default function CaseDetailView() {
               </Form.Item>
             </Col>
 
-            <Col xs={24} sm={12} lg={8}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} lg={8}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Judge" name="judge"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} lg={8}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Date of Order" name="dateOfOrder"><DatePicker style={{ width: '100%' }} /></Form.Item>
             </Col>
 
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0" /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
             </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
+            <Col xs={24} sm={12}>
               <Form.Item label="Remarks" name="remarks"><Input.TextArea rows={1} /></Form.Item>
             </Col>
           </Row>
+            </div>
+          </div>
         </Form>
-        {canEdit && <Button type="primary" onClick={saveCaseInfo} loading={saving}>Save Changes</Button>}
+        {canEdit && (
+          <div style={{ textAlign: 'right' }}>
+            <Button type="primary" onClick={saveCaseInfo} loading={saving}>Save Changes</Button>
+          </div>
+        )}
       </Card>
             ),
           },
@@ -371,11 +409,13 @@ export default function CaseDetailView() {
             key: 'psir',
             label: 'PSIR Profile',
             children: (
-      <Card
-        extra={<Text type="secondary" style={{ fontSize: 12 }}>Prefills the PSIR Generator — not shown in Case Information above.</Text>}
-      >
+      <Card className="psir-form">
+        <style>{`
+          .psir-form .ant-form-item-label > label { font-weight: 600; }
+          .psir-form .psir-section-title .ant-divider-inner-text { font-weight: 700; font-size: 18px; }
+        `}</style>
         <Form form={psirForm} layout="vertical" disabled={!canEdit}>
-          <Divider orientation="left" plain>Identifying Data</Divider>
+          <Divider orientation="center" className="psir-section-title">Identifying Data</Divider>
           <Row gutter={[24, 8]}>
             <Col xs={24} sm={12} md={8} lg={6}>
               <Form.Item label="True Name" name="trueName" tooltip="Only if different from Full Name above">
@@ -419,7 +459,7 @@ export default function CaseDetailView() {
             </Col>
           </Row>
 
-          <Divider orientation="left" plain>Criminal History</Divider>
+          <Divider orientation="center" className="psir-section-title">Criminal History</Divider>
           <Text strong style={{ display: 'block', marginBottom: 8 }}>
             Original Charge <Text type="secondary" style={{ fontWeight: 400 }}>(if different from the Convicted Offense above)</Text>
           </Text>
@@ -551,12 +591,15 @@ export default function CaseDetailView() {
             ]}
           />
 
-          <Divider orientation="left" plain style={{ marginTop: 24 }}>Socio-Economic Background</Divider>
+          <Divider orientation="center" className="psir-section-title" style={{ marginTop: 24 }}>Socio-Economic Background</Divider>
           <Row gutter={[24, 16]}>
             {SOCIO_ECONOMIC_GROUPS.map((g) => (
               <Col xs={24} md={12} key={g.id}>
                 <Form.Item label={g.title} name={`rate_${g.id}`}>
-                  <Radio.Group options={g.options.map((o) => ({ label: o, value: o }))} />
+                  <Radio.Group
+                    options={g.options.map((o) => ({ label: o, value: o }))}
+                    style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 4 }}
+                  />
                 </Form.Item>
               </Col>
             ))}
@@ -571,6 +614,18 @@ export default function CaseDetailView() {
             label: 'Stage & Status',
             children: (
       <Card>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: 0.6,
+            textTransform: 'uppercase',
+            color: 'rgba(0,0,0,0.45)',
+            marginBottom: 8,
+          }}
+        >
+          Current Stage and Status
+        </div>
         <Space size="middle" style={{ marginBottom: 24 }}>
           <Tag color={STAGE_COLORS[probationer.stage] || 'default'} style={{ fontSize: 13, padding: '3px 12px' }}>
             {probationer.stage}
@@ -582,7 +637,7 @@ export default function CaseDetailView() {
 
         <Row gutter={[24, 20]}>
           <Col xs={24} sm={12} lg={8}>
-            <div style={{ marginBottom: 6, color: 'rgba(0,0,0,0.65)' }}>Stage</div>
+            <div style={{ marginBottom: 6, color: 'rgba(0,0,0,0.65)', fontWeight: 600 }}>Stage</div>
             <Space.Compact style={{ width: '100%' }}>
               <Select
                 style={{ width: '100%' }}
@@ -599,7 +654,7 @@ export default function CaseDetailView() {
             </Space.Compact>
           </Col>
           <Col xs={24} sm={12} lg={8}>
-            <div style={{ marginBottom: 6, color: 'rgba(0,0,0,0.65)' }}>Status</div>
+            <div style={{ marginBottom: 6, color: 'rgba(0,0,0,0.65)', fontWeight: 600 }}>Status</div>
             <Space.Compact style={{ width: '100%' }}>
               <Select
                 style={{ width: '100%' }}
@@ -617,7 +672,7 @@ export default function CaseDetailView() {
           </Col>
           {isAdmin && (
             <Col xs={24} sm={12} lg={8}>
-              <div style={{ marginBottom: 6, color: 'rgba(0,0,0,0.65)' }}>Assigned Officer</div>
+              <div style={{ marginBottom: 6, color: 'rgba(0,0,0,0.65)', fontWeight: 600 }}>Assigned Officer</div>
               <Space.Compact style={{ width: '100%' }}>
                 <Select
                   style={{ width: '100%' }}
@@ -637,6 +692,26 @@ export default function CaseDetailView() {
             </Col>
           )}
         </Row>
+
+        <Divider />
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: 0.6,
+            textTransform: 'uppercase',
+            color: 'rgba(0,0,0,0.45)',
+            marginBottom: 8,
+          }}
+        >
+          Submitted Documents Checklist
+        </div>
+        {isDetained && (
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            Custodial status is Detention — only the documents still obtainable while detained are listed below.
+          </Text>
+        )}
+        <DocumentChecklist probationerId={selectedProbationerId} isDetained={isDetained} canEdit={canEdit} />
       </Card>
             ),
           },
@@ -657,6 +732,7 @@ export default function CaseDetailView() {
               key: 'status',
               render: () => <Tag color="green">Present</Tag>,
             },
+            { title: 'GAD Topic', dataIndex: 'gad_topic', key: 'gad_topic', render: (v) => v || '—' },
             { title: 'Notes', dataIndex: 'notes', key: 'notes' },
           ]}
         />

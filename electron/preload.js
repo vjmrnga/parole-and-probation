@@ -48,4 +48,14 @@ contextBridge.exposeInMainWorld('api', {
   onPadStatusChanged: (callback) => {
     ipcRenderer.on('pad-status-changed', (_event, status) => callback(status));
   },
+
+  // Document scanner
+  getScannerStatus: () => ipcRenderer.invoke('scanner-status'),
+  scanDocument: () => ipcRenderer.invoke('scanner-scan'),
+  onScannerStatusChanged: (callback) => {
+    ipcRenderer.on('scanner-status-changed', (_event, status) => callback(status));
+  },
+
+  // Document checklist attachments
+  documentOpenFile: (base64, filename) => ipcRenderer.invoke('document-open-file', { base64, filename }),
 });

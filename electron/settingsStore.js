@@ -20,6 +20,9 @@ const store = new Store({
     // Branch Office only
     headOfficeUrl: '',
     pinnedCertFingerprint: '',
+
+    // Signature pad (either mode — whichever PC has the Wacom pad plugged in)
+    wacomLicenseKey: '',
   },
 });
 

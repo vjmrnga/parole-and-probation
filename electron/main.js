@@ -15,19 +15,23 @@ const { createApp, startHttpsServer } = require('../server/app');
 const backupScheduler = require('../server/backup/scheduler');
 const { buildProbationersWorkbook } = require('../shared/reportBuilder');
 const statusEnums = require('../shared/statusEnums');
+const documentChecklist = require('../shared/documentChecklist');
 const { parseProbationerImport, buildImportTemplate } = require('./importParser');
 const { parseActiveSupervisionImport } = require('./activeSupervisionImportParser');
 
-// wacom/ + bridge/ are copied in separately (see plan). Commented out until
-// that's done — uncomment once wacom/wacomPad.js exists; everything below
-// that touches wacomPad is already guarded with `if (wacomPad)` so it's
-// safe to leave this as `null` in the meantime.
 let wacomPad = null;
-// try {
-//   wacomPad = require('../wacom/wacomPad');
-// } catch (err) {
-//   console.warn('wacom/wacomPad.js not found yet — signature pad support disabled:', err.message);
-// }
+try {
+  wacomPad = require('../wacom/wacomPad');
+} catch (err) {
+  console.warn('wacom/wacomPad.js not found — signature pad support disabled:', err.message);
+}
+
+let scannerBridge = null;
+try {
+  scannerBridge = require('../scanner/scannerBridge');
+} catch (err) {
+  console.warn('scanner/scannerBridge.js not found — document scanner support disabled:', err.message);
+}
 
 const isHiddenLaunch = process.argv.includes('--hidden');
 // Set by `npm run dev` (see package.json) to point at Vite's dev server for
@@ -42,6 +46,10 @@ function signaturesDir() {
   return path.join(app.getPath('userData'), 'signatures');
 }
 
+function photosDir() {
+  return path.join(app.getPath('userData'), 'photos');
+}
+
 function psirDir() {
   return path.join(app.getPath('userData'), 'psir-reports');
 }
@@ -54,10 +62,15 @@ function fileReportsDir() {
   return path.join(app.getPath('userData'), 'file-reports');
 }
 
+function documentsDir() {
+  return path.join(app.getPath('userData'), 'documents');
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    fullscreen: true,
     show: !isHiddenLaunch,
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {
@@ -89,7 +102,7 @@ async function startHeadOfficeServer() {
   db.init(mysqlConfig);
   await runMigration(db.getPool()); // idempotent — picks up schema changes (e.g. new columns) on every launch, not just initial setup
   const { key, cert } = certGen.ensureCert(app.getPath('userData'));
-  const expressApp = createApp(settingsStore, signaturesDir(), psirDir(), recordsCheckDir(), fileReportsDir());
+  const expressApp = createApp(settingsStore, signaturesDir(), photosDir(), psirDir(), recordsCheckDir(), fileReportsDir(), documentsDir());
   httpsServer = await startHttpsServer(expressApp, { key, cert }, settingsStore.get('serverPort'));
 
   if (settingsStore.get('backupFolder')) {
@@ -215,6 +228,7 @@ if (!gotLock) {
     setupAutoUpdater();
 
     if (wacomPad) wacomPad.init(mainWindow);
+    if (scannerBridge) scannerBridge.init(mainWindow);
 
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(permission === 'media');
@@ -227,6 +241,7 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     if (wacomPad) wacomPad.shutdown();
+    if (scannerBridge) scannerBridge.shutdown();
     if (process.platform !== 'darwin' && settingsStore.get('mode') !== 'head-office') app.quit();
   });
 
@@ -236,10 +251,14 @@ if (!gotLock) {
   });
 
   // ---- IPC: settings ----
-  ipcMain.handle('get-enums', () => statusEnums);
+  ipcMain.handle('get-enums', () => ({ ...statusEnums, DOCUMENT_CHECKLIST_ITEMS: documentChecklist.DOCUMENT_CHECKLIST_ITEMS }));
   ipcMain.handle('get-settings', () => settingsStore.getAll());
   ipcMain.handle('set-setting', (_e, { key, value }) => {
     settingsStore.set(key, value);
+    // Re-spawn the bridge process with the new WACOM_SIGNATURE_LICENSE env
+    // var so a freshly-saved key takes effect immediately, without asking
+    // the user to restart the app.
+    if (key === 'wacomLicenseKey' && wacomPad) wacomPad.restart(mainWindow);
     return settingsStore.getAll();
   });
 
@@ -357,6 +376,20 @@ if (!gotLock) {
     return err ? { ok: false, error: err } : { ok: true };
   });
 
+  // ---- IPC: document checklist attachments ----
+  // Opens a checklist attachment (image or PDF) in the OS's default viewer,
+  // same save-to-temp-then-shell.openPath pattern as psir-open-file above —
+  // sidesteps the renderer CSP's object-src restriction (data: URIs aren't
+  // allowed there) rather than trying to preview the PDF inline.
+  ipcMain.handle('document-open-file', async (_e, { base64, filename }) => {
+    const tmpDir = path.join(app.getPath('temp'), 'document-checklist-preview');
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const filePath = path.join(tmpDir, filename);
+    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
+    const err = await shell.openPath(filePath);
+    return err ? { ok: false, error: err } : { ok: true };
+  });
+
   // ---- IPC: Records Check ----
   // Generated PDFs are saved via POST /api/records-check/batch (see
   // server/routes/recordsCheck.js) so every machine — Head or Branch — sees
@@ -462,6 +495,18 @@ if (!gotLock) {
     try {
       const pngBase64 = await wacomPad.captureFromPad(payload);
       return { ok: true, pngBase64 };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ---- IPC: document scanner (WIA) ----
+  ipcMain.handle('scanner-status', () => (scannerBridge ? scannerBridge.getStatus() : { connected: false, deviceName: null, mode: 'unavailable' }));
+  ipcMain.handle('scanner-scan', async () => {
+    if (!scannerBridge) return { ok: false, error: 'Document scanner module not installed' };
+    try {
+      const { imageBase64, mimeType } = await scannerBridge.scanDocument();
+      return { ok: true, imageBase64, mimeType };
     } catch (err) {
       return { ok: false, error: err.message };
     }

@@ -16,6 +16,19 @@ export default function SettingsView() {
   const [backupSchedule, setBackupSchedule] = useState('');
   const [backupRetention, setBackupRetention] = useState(14);
 
+  const [wacomLicenseKey, setWacomLicenseKey] = useState('');
+  const [savingWacomKey, setSavingWacomKey] = useState(false);
+  const [padStatus, setPadStatus] = useState({ connected: false, model: null });
+
+  useEffect(() => {
+    setWacomLicenseKey(settings.wacomLicenseKey || '');
+  }, [settings.wacomLicenseKey]);
+
+  useEffect(() => {
+    window.api.getPadStatus().then(setPadStatus).catch(() => {});
+    window.api.onPadStatusChanged(setPadStatus);
+  }, []);
+
   useEffect(() => {
     if (settings.mode === 'head-office') {
       setDb({
@@ -78,6 +91,17 @@ export default function SettingsView() {
     message.success('Backup settings saved.');
   }
 
+  async function saveWacomLicenseKey() {
+    setSavingWacomKey(true);
+    try {
+      await window.api.setSetting('wacomLicenseKey', wacomLicenseKey.trim());
+      await refreshSettings();
+      message.success('Signature pad license key saved.');
+    } finally {
+      setSavingWacomKey(false);
+    }
+  }
+
   async function runBackupNow() {
     const result = await window.api.runBackupNow();
     if (result.ok) {
@@ -110,6 +134,32 @@ export default function SettingsView() {
         Mode: <Text strong>{settings.mode || '(not set)'}</Text>{' '}
         <Button type="link" onClick={switchMode}>Switch Mode…</Button>
       </p>
+
+      <Card title="Signature Pad" style={{ marginBottom: 20 }}>
+        <Space style={{ marginBottom: 12 }}>
+          <span style={{
+            width: 10, height: 10, borderRadius: '50%', display: 'inline-block',
+            background: padStatus.connected ? '#27ae60' : '#c0392b',
+          }} />
+          <Text type="secondary">
+            {padStatus.connected ? `Pad connected (${padStatus.model || 'unknown model'})` : 'No pad detected on this PC — signatures fall back to mouse/touch'}
+          </Text>
+        </Space>
+        <p>
+          <Text type="secondary">
+            License key for the Wacom Signature SDK (see bridge/README.md for how to get one). This is
+            per-machine — set it on whichever PC has the pad plugged in.
+          </Text>
+        </p>
+        <Space.Compact style={{ width: '100%', maxWidth: 480 }}>
+          <Input.Password
+            placeholder="Wacom SDK license key"
+            value={wacomLicenseKey}
+            onChange={(e) => setWacomLicenseKey(e.target.value)}
+          />
+          <Button type="primary" loading={savingWacomKey} onClick={saveWacomLicenseKey}>Save</Button>
+        </Space.Compact>
+      </Card>
 
       {settings.mode === 'head-office' && (
         <>
