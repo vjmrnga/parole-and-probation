@@ -1,0 +1,80 @@
+{
+  "name": "parole-probation-case-manager",
+  "version": "0.1.2",
+  "private": true,
+  "description": "Centralized probation case management system (Head Office / Branch Office Electron app).",
+  "main": "electron/main.js",
+  "scripts": {
+    "predev": "node scripts/kill-app.js",
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite",
+    "dev:electron": "wait-on tcp:5173 && cross-env ELECTRON_START_URL=http://localhost:5173 node scripts/run-electron.js",
+    "build:renderer": "vite build",
+    "start": "npm run build:renderer && node scripts/run-electron.js",
+    "start:hidden": "npm run build:renderer && node scripts/run-electron.js --hidden",
+    "dist": "npm run build:renderer && electron-builder"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.6.1",
+    "antd": "^5.21.0",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dayjs": "^1.11.21",
+    "electron-store": "^8.2.0",
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.0",
+    "node-cron": "^3.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "selfsigned": "^2.4.1",
+    "signature_pad": "^4.1.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^30.0.0",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.4.11",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.vjmrnga.paroleandprobation",
+    "productName": "Parole and Probation Case Manager",
+    "publish": null,
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "shared/**/*",
+      "renderer/dist/**/*",
+      "wacom/**/*",
+      "build/icon.png",
+      "package.json",
+      "!bridge/**"
+    ],
+    "extraResources": [
+      {
+        "from": "bridge/bin/Release/net48",
+        "to": "bridge",
+        "filter": [
+          "SignatureBridge.exe",
+          "SignatureBridge.exe.config",
+          "*.dll"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

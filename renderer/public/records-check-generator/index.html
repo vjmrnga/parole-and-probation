@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Records Check Generator — Talisay City PPO</title>
+<style>
+  :root{
+    --paper:#ffffff;
+    --desk:#e7e9ed;
+    --ink:#191c22;
+    --ink-2:#5a6068;
+    --ink-3:#8a9099;
+    --rule:#d2d6dd;
+    --rule-2:#e6e9ee;
+    --navy:#17457a;
+    --navy-d:#0f3159;
+    --seal-red:#a32020;
+    --seal-gold:#b8901c;
+    --ok:#1f6b46;
+    --focus:#2f7fd4;
+    --mono:"Cascadia Mono","SF Mono",ui-monospace,"Consolas",monospace;
+    --sans:"Segoe UI",Inter,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{height:100%}
+  body{
+    margin:0;background:var(--desk);color:var(--ink);
+    font:14px/1.45 var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+  button,input,select{font:inherit;color:inherit}
+  button{cursor:pointer}
+  :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+  /* ---------- frame ---------- */
+  .app{display:grid;grid-template-columns:minmax(420px,480px) 1fr;height:100vh}
+  .console{background:var(--paper);border-right:1px solid var(--rule);display:flex;flex-direction:column;min-height:0}
+  .stage{display:flex;flex-direction:column;min-height:0;background:var(--desk)}
+
+  /* ---------- masthead ---------- */
+  .masthead{padding:18px 22px 14px;border-bottom:1px solid var(--rule)}
+  .masthead h1{margin:0;font-size:17px;font-weight:650;letter-spacing:-.01em}
+  .formcode{
+    display:inline-block;margin-bottom:7px;padding:2px 6px;
+    font:600 10px/1.3 var(--mono);letter-spacing:.08em;
+    color:var(--seal-red);border:1px solid currentColor;border-radius:2px;
+  }
+  .masthead p{margin:5px 0 0;font-size:12.5px;color:var(--ink-2)}
+
+  .scroll{overflow-y:auto;flex:1;min-height:0}
+  section{padding:18px 22px;border-bottom:1px solid var(--rule-2)}
+  .lbl{
+    display:block;font:600 10.5px/1 var(--sans);letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink-3);margin-bottom:10px;
+  }
+  .lbl .n{color:var(--navy);font-family:var(--mono);margin-right:7px}
+
+  /* ---------- masterlist drop ---------- */
+  .drop{
+    border:1.5px dashed var(--rule);border-radius:4px;padding:16px;text-align:center;
+    background:#fbfcfd;transition:border-color .12s,background .12s;
+  }
+  .drop.over{border-color:var(--navy);background:#f2f6fb}
+  .drop button{
+    background:var(--navy);color:#fff;border:0;border-radius:3px;
+    padding:7px 14px;font-weight:600;font-size:13px;
+  }
+  .drop button:hover{background:var(--navy-d)}
+  .drop small{display:block;margin-top:8px;color:var(--ink-3);font-size:12px}
+  .loaded{
+    display:flex;align-items:center;gap:10px;padding:10px 12px;
+    border:1px solid var(--rule);border-left:3px solid var(--ok);border-radius:3px;background:#fbfcfd;
+  }
+  .loaded .nm{font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .loaded .ct{margin-left:auto;font:600 11px var(--mono);color:var(--ok);white-space:nowrap}
+  .loaded .x{border:0;background:0;color:var(--ink-3);padding:2px 4px;font-size:15px;line-height:1}
+  .loaded .x:hover{color:var(--seal-red)}
+
+  /* ---------- id entry ---------- */
+  .entry{display:flex;gap:8px}
+  .entry input{
+    flex:1;padding:9px 11px;border:1px solid var(--rule);border-radius:3px;
+    font:600 14px var(--mono);background:#fff;
+  }
+  .entry input::placeholder{font-weight:400;font-family:var(--sans);color:var(--ink-3)}
+  .entry input:disabled{background:#f4f5f7}
+  .entry button{
+    padding:9px 14px;border:1px solid var(--rule);background:#fff;border-radius:3px;font-weight:600;
+  }
+  .entry button:hover:not(:disabled){border-color:var(--navy);color:var(--navy)}
+  .entry button:disabled{opacity:.45;cursor:not-allowed}
+  .hint{margin-top:7px;font-size:12px;color:var(--ink-3)}
+  .hint code{font-family:var(--mono);background:#eef0f3;padding:1px 4px;border-radius:2px}
+
+  .results{margin-top:9px;border:1px solid var(--rule);border-radius:3px;max-height:180px;overflow-y:auto}
+  .results:empty{display:none}
+  .results button{
+    display:flex;width:100%;gap:10px;text-align:left;padding:7px 10px;border:0;
+    border-bottom:1px solid var(--rule-2);background:#fff;font-size:13px;
+  }
+  .results button:last-child{border-bottom:0}
+  .results button:hover{background:#f2f6fb}
+  .results .rid{font:600 12px var(--mono);color:var(--navy);min-width:34px}
+  .results .rnm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  /* ---------- queue ---------- */
+  .queue{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{
+    display:inline-flex;align-items:center;gap:7px;max-width:100%;
+    padding:5px 6px 5px 9px;border:1px solid var(--rule);border-left:3px solid var(--seal-gold);
+    border-radius:3px;background:#fff;font-size:12.5px;
+  }
+  .chip b{font:600 12px var(--mono);color:var(--navy)}
+  .chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px;color:var(--ink-2)}
+  .chip button{border:0;background:0;color:var(--ink-3);font-size:15px;line-height:1;padding:0 3px}
+  .chip button:hover{color:var(--seal-red)}
+  .empty{color:var(--ink-3);font-size:12.5px;font-style:italic}
+  .queue-hd{display:flex;align-items:baseline;justify-content:space-between}
+  .queue-hd button{border:0;background:0;color:var(--ink-3);font-size:11.5px;text-decoration:underline;padding:0}
+  .queue-hd button:hover{color:var(--seal-red)}
+
+  /* ---------- routing table ---------- */
+  table{width:100%;border-collapse:collapse}
+  thead th{
+    font:600 10px/1 var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
+    text-align:center;padding:0 0 8px;font-weight:600;
+  }
+  thead th:first-child{text-align:left}
+  tbody td{padding:5px 0;border-top:1px solid var(--rule-2);font-size:13px}
+  tbody tr.on td:first-child{font-weight:600}
+  tbody td:first-child{width:100%}
+  tbody td.c{text-align:center;width:58px}
+  tbody tr.off td:first-child{color:var(--ink-3)}
+  input[type=checkbox]{width:15px;height:15px;accent-color:var(--navy);margin:0}
+  .copies{
+    width:44px;padding:3px;text-align:center;border:1px solid var(--rule);border-radius:3px;
+    font:600 12px var(--mono);background:#fff;
+  }
+  .copies[value="0"],.copies.zero{color:var(--ink-3);background:#f7f8f9}
+  tfoot td{padding-top:9px;font-size:11.5px;color:var(--ink-3)}
+
+  /* ---------- options ---------- */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .fld label{display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:4px}
+  .fld input,.fld select{
+    width:100%;padding:7px 9px;border:1px solid var(--rule);border-radius:3px;background:#fff;font-size:13px;
+  }
+  .folder{display:flex;gap:8px;align-items:center;margin-top:10px}
+  .folder button{
+    padding:7px 11px;border:1px solid var(--rule);background:#fff;border-radius:3px;font-size:12.5px;font-weight:600;
+  }
+  .folder button:hover{border-color:var(--navy);color:var(--navy)}
+  .folder .path{
+    flex:1;font:12px var(--mono);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .folder .path.none{color:var(--ink-3);font-style:italic;font-family:var(--sans)}
+
+  /* ---------- actions ---------- */
+  .actions{
+    padding:16px 22px;border-top:1px solid var(--rule);background:#fbfcfd;
+    display:grid;grid-template-columns:1fr 1fr;gap:9px;
+  }
+  .actions button{
+    padding:11px 10px;border-radius:3px;font-weight:600;font-size:13.5px;border:1px solid var(--rule);background:#fff;
+  }
+  .actions button:hover:not(:disabled){border-color:var(--navy);color:var(--navy)}
+  .actions button.pri{grid-column:1/-1;background:var(--navy);border-color:var(--navy);color:#fff}
+  .actions button.pri:hover:not(:disabled){background:var(--navy-d);color:#fff}
+  .actions button:disabled{opacity:.4;cursor:not-allowed}
+
+  /* ---------- stage / preview ---------- */
+  .stagebar{
+    display:flex;align-items:center;gap:12px;padding:11px 18px;
+    background:var(--paper);border-bottom:1px solid var(--rule);
+  }
+  .stagebar .t{font:600 12.5px var(--sans)}
+  .stagebar .meta{font:11.5px var(--mono);color:var(--ink-3)}
+  .stagebar .sp{margin-left:auto}
+  .stagebar button{
+    padding:6px 11px;border:1px solid var(--rule);background:#fff;border-radius:3px;font-size:12.5px;font-weight:600;
+  }
+  .stagebar button:hover:not(:disabled){border-color:var(--navy);color:var(--navy)}
+  .stagebar button:disabled{opacity:.4;cursor:not-allowed}
+  .viewport{flex:1;min-height:0;position:relative}
+  .viewport iframe{width:100%;height:100%;border:0;display:block;background:var(--desk);position:relative;z-index:1}
+  .blank{
+    position:absolute;inset:0;z-index:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:10px;color:var(--ink-3);text-align:center;padding:30px;
+  }
+  .blank .sheet{
+    width:132px;height:187px;background:#fff;border:1px solid var(--rule);border-radius:2px;
+    box-shadow:0 1px 3px rgba(0,0,0,.07);position:relative;overflow:hidden;
+  }
+  .blank .sheet::before{
+    content:"";position:absolute;left:14px;right:14px;top:22px;height:5px;background:var(--rule-2);
+    box-shadow:0 12px 0 var(--rule-2),0 24px 0 var(--rule-2),0 36px 0 var(--rule-2),0 48px 0 var(--rule-2);
+  }
+  .blank p{margin:0;font-size:13px;max-width:280px}
+
+  /* ---------- log ---------- */
+  .log{
+    border-top:1px solid var(--rule);background:var(--paper);max-height:150px;overflow-y:auto;
+    padding:9px 18px;font:12px var(--mono);
+  }
+  .log:empty{display:none}
+  .log div{padding:2px 0;color:var(--ink-2)}
+  .log div.err{color:var(--seal-red)}
+  .log div.ok{color:var(--ok)}
+  .log .ts{color:var(--ink-3);margin-right:8px}
+
+  .busy{position:fixed;inset:0;background:rgba(231,233,237,.72);display:none;place-items:center;z-index:9}
+  .busy.on{display:grid}
+  .busy div{
+    background:#fff;border:1px solid var(--rule);border-radius:4px;padding:16px 26px;
+    font-weight:600;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.1);
+  }
+
+  @media (max-width:900px){
+    .app{grid-template-columns:1fr;height:auto}
+    .console{border-right:0;border-bottom:1px solid var(--rule)}
+    .viewport{height:70vh}
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- ================= CONSOLE ================= -->
+  <div class="console">
+    <div class="masthead">
+      <span class="formcode">PPA-FO-FR-013</span>
+      <h1>Request for Records Check</h1>
+      <p>Talisay City Parole and Probation Office</p>
+    </div>
+
+    <div class="scroll">
+      <!-- 1. ids -->
+      <section>
+        <span class="lbl"><span class="n">01</span>Petitioners <span id="mlCount" style="color:var(--ink-3);font-family:var(--mono);text-transform:none;letter-spacing:normal;font-weight:400"></span></span>
+        <div class="entry">
+          <input id="idIn" placeholder="ID number, or search by name" disabled autocomplete="off">
+          <button id="addBtn" disabled>Add</button>
+        </div>
+        <p class="hint">Enter to add. Ranges and lists work: <code>114</code> · <code>3, 9, 21</code> · <code>40-45</code></p>
+        <div class="results" id="results"></div>
+
+        <div class="queue-hd" style="margin-top:16px">
+          <span class="lbl" style="margin:0">Queue <span id="qn" style="color:var(--navy);font-family:var(--mono)"></span></span>
+          <button id="clearQ" hidden>Clear all</button>
+        </div>
+        <div class="queue" id="queue" style="margin-top:8px">
+          <span class="empty">No petitioners queued.</span>
+        </div>
+      </section>
+
+      <!-- 2. routing -->
+      <section>
+        <span class="lbl"><span class="n">02</span>Routing</span>
+        <table>
+          <thead>
+            <tr><th>Recipient</th><th>Save PDF</th><th>Print</th></tr>
+          </thead>
+          <tbody id="routing"></tbody>
+          <tfoot>
+            <tr><td colspan="3">Print column is the number of copies. Set to 0 to skip.</td></tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <!-- 3. options -->
+      <section>
+        <span class="lbl"><span class="n">03</span>Document details</span>
+        <div class="grid2">
+          <div class="fld">
+            <label for="dateIn">Date on the request</label>
+            <input type="date" id="dateIn">
+          </div>
+          <div class="fld">
+            <label for="paperIn">Paper</label>
+            <select id="paperIn">
+              <option value="a4" selected>A4 — 210 × 297 mm</option>
+              <option value="letter">Letter — 8.5 × 11 in</option>
+              <option value="folio">Folio / Long — 8.5 × 13 in</option>
+              <option value="legal">Legal — 8.5 × 14 in</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:10px">
+          <div class="fld">
+            <label for="chiefIn">Chief Probation and Parole Officer</label>
+            <input id="chiefIn" value="LYLE E. DACLAN">
+          </div>
+          <div class="fld">
+            <label for="sigIn">Signatures</label>
+            <select id="sigIn">
+              <option value="1" selected>Include e-signatures</option>
+              <option value="0">Leave blank for wet signing</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:10px">Saved PDFs are stored automatically, sorted by recipient then date — see the app's Saved PDFs tab.</p>
+      </section>
+    </div>
+
+    <div class="actions">
+      <button id="btnPdf" disabled>Save PDFs</button>
+      <button id="btnPrint" disabled>Print</button>
+      <button id="btnBoth" class="pri" disabled>Save PDFs and print</button>
+    </div>
+  </div>
+
+  <!-- ================= STAGE ================= -->
+  <div class="stage">
+    <div class="stagebar">
+      <span class="t">Preview</span>
+      <span class="meta" id="pvMeta"></span>
+      <span class="sp"></span>
+      <button id="pvRefresh" disabled>Refresh</button>
+    </div>
+    <div class="viewport">
+      <iframe id="pv" title="Document preview" hidden></iframe>
+      <div class="blank" id="pvBlank">
+        <div class="sheet"></div>
+        <p>Load the masterlist and queue a petitioner. Every page you are about to print or save appears here first.</p>
+      </div>
+    </div>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<div class="busy" id="busy"><div id="busyTxt">Working…</div></div>
+<iframe id="printFrame" style="position:fixed;width:0;height:0;border:0;visibility:hidden" title="print"></iframe>
+
+<!-- ===================== inlined libraries ===================== -->
+
+<script src="./jspdf.min.js"></script>
+<script src="./rc-assets.js"></script>
+<script src="./rc-render.js"></script>
+<script src="./app-logic.js"></script>
+</body>
+</html>

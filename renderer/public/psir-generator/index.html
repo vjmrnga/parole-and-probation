@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PSIR Generator V4 — Talisay City PPO</title>
+<style>
+  :root{
+    --navy:#14243D;
+    --navy-2:#1E3557;
+    --parchment:#F6F4EE;
+    --card:#FFFFFF;
+    --gold:#A8842C;
+    --gold-soft:#E7DDC2;
+    --ink:#23262B;
+    --muted:#6E7480;
+    --line:#DDD8CC;
+    --focus:#2E5AAC;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--parchment); color:var(--ink);
+    font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  /* ---------- Top band ---------- */
+  header.top{
+    background:var(--navy); color:#F4F1E6; padding:22px 24px 18px;
+    border-bottom:4px solid var(--gold);
+  }
+  header.top .wrap{max-width:1100px;margin:0 auto;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .seal{
+    width:52px;height:52px;border:2px solid var(--gold);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
+    font-family:Georgia,"Times New Roman",serif;font-weight:700;color:var(--gold);letter-spacing:1px;
+  }
+  header.top h1{
+    margin:0;font-family:Georgia,"Times New Roman",serif;font-size:21px;font-weight:700;letter-spacing:.4px;
+  }
+  header.top p{margin:2px 0 0;font-size:12.5px;color:#C9C3AE;letter-spacing:.6px;text-transform:uppercase}
+  /* Live caption strip — mimics a document tab */
+  .caption{
+    background:var(--navy-2); color:#EDE8D8; font-size:13px;
+    padding:8px 24px; border-bottom:1px solid rgba(255,255,255,.12);
+  }
+  .caption .wrap{max-width:1100px;margin:0 auto;display:flex;gap:24px;flex-wrap:wrap}
+  .caption b{color:var(--gold-soft);font-weight:600}
+
+  /* ---------- Layout ---------- */
+  .shell{max-width:1100px;margin:26px auto 90px;padding:0 20px;display:grid;grid-template-columns:210px 1fr;gap:26px}
+  nav.side{position:sticky;top:16px;align-self:start}
+  nav.side a{
+    display:block;padding:8px 12px;margin-bottom:2px;text-decoration:none;color:var(--muted);
+    font-size:13.5px;border-left:3px solid transparent;border-radius:0 6px 6px 0;
+  }
+  nav.side a:hover{color:var(--navy);background:#EFEBDF}
+  nav.side a.on{color:var(--navy);border-left-color:var(--gold);background:#F0ECE0;font-weight:600}
+  nav.side .gen{
+    margin-top:14px;width:100%;
+  }
+
+  section.card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:22px 24px;margin-bottom:22px;box-shadow:0 1px 2px rgba(20,36,61,.05);
+  }
+  section.card h2{
+    margin:0 0 4px;font-family:Georgia,"Times New Roman",serif;font-size:18px;color:var(--navy);
+  }
+  section.card h2 .num{color:var(--gold);margin-right:8px;font-size:15px;letter-spacing:1px}
+  section.card p.hint{margin:0 0 16px;font-size:13px;color:var(--muted)}
+  h3.sub{
+    margin:20px 0 10px;font-size:12.5px;letter-spacing:1.2px;text-transform:uppercase;
+    color:var(--navy);border-bottom:1px solid var(--line);padding-bottom:6px;font-weight:700;
+  }
+
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px 14px;align-items:start}
+  .f{display:flex;flex-direction:column;gap:4px}
+  .c3{grid-column:span 3}.c4{grid-column:span 4}.c6{grid-column:span 6}.c8{grid-column:span 8}.c12{grid-column:span 12}
+  label{font-size:12.5px;font-weight:600;color:#3C4250}
+  label .opt{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=date],input[type=email],input[type=number],select,textarea{
+    font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#FDFCF9;color:var(--ink);
+    width:100%;
+  }
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-offset:1px;border-color:var(--focus)}
+  textarea{resize:vertical;min-height:90px;line-height:1.55}
+  #analysisText{min-height:340px;font-family:Georgia,"Times New Roman",serif;font-size:14.5px}
+
+  /* choice rows */
+  .choices{display:flex;flex-direction:column;gap:6px}
+  .choice{
+    display:flex;gap:9px;align-items:flex-start;padding:7px 10px;border:1px solid var(--line);
+    border-radius:6px;background:#FDFCF9;cursor:pointer;font-size:14px;
+  }
+  .choice:hover{border-color:var(--gold)}
+  .choice input{margin-top:3px;accent-color:var(--navy);flex:0 0 auto}
+  .choice.checked{background:#F4EFE1;border-color:var(--gold)}
+  .inline-choices{display:flex;gap:10px;flex-wrap:wrap}
+  .inline-choices .choice{flex:0 0 auto}
+
+  /* rating groups (socio-economic) */
+  .rate-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+  .rate{border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#FDFCF9}
+  .rate h4{margin:0;padding:9px 12px;background:var(--navy);color:#F1EDDE;font-size:12.5px;letter-spacing:.6px;font-weight:600}
+  .rate .body{padding:10px 12px;display:flex;flex-direction:column;gap:5px}
+  .rate .choice{border:none;padding:4px 4px;background:transparent}
+  .rate .choice.checked{background:#F1EADA;border-radius:5px}
+
+  /* prior records table */
+  table.prior{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.prior th{
+    background:var(--navy);color:#F1EDDE;font-weight:600;text-align:left;padding:8px 9px;font-size:12px;letter-spacing:.4px;
+  }
+  table.prior td{border:1px solid var(--line);padding:4px}
+  table.prior td:first-child{background:#F2EFE6;font-weight:600;padding:8px 9px;white-space:nowrap}
+  table.prior input{border:none;background:transparent;border-radius:0;padding:6px 6px}
+  table.prior input:focus{outline:2px solid var(--focus);outline-offset:-2px}
+
+  .btn{
+    font:inherit;font-weight:600;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;
+  }
+  .btn.primary{background:var(--navy);color:#F4F1E6}
+  .btn.primary:hover{background:var(--navy-2)}
+  .btn.ghost{background:transparent;color:var(--navy);border:1px solid var(--navy);padding:8px 14px;font-size:13.5px}
+  .btn.ghost:hover{background:#EFEBDF}
+  .btn:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+  .genbar{
+    position:fixed;left:0;right:0;bottom:0;background:rgba(20,36,61,.97);
+    padding:12px 20px;display:flex;justify-content:center;gap:14px;align-items:center;
+    box-shadow:0 -4px 14px rgba(0,0,0,.18);
+  }
+  .genbar .msg{color:#D9D2BC;font-size:13.5px}
+  .genbar #genMsg.err{color:#F2B8B5}
+  .genbar .btn.primary{background:var(--gold);color:#1A1608;padding:12px 30px;font-size:15.5px}
+  .genbar .btn.primary:hover{background:#C09A38}
+  .genbar .btn.primary:disabled{opacity:.55;cursor:wait}
+
+  details.office{border:1px dashed var(--gold);border-radius:8px;padding:0;background:#FBF8EF;margin-bottom:16px}
+  details.office summary{
+    cursor:pointer;padding:11px 14px;font-weight:600;color:var(--navy);font-size:13.5px;list-style:none;
+  }
+  details.office summary::before{content:"▸ ";color:var(--gold)}
+  details.office[open] summary::before{content:"▾ "}
+  details.office .grid{padding:4px 14px 16px}
+
+  .note{font-size:12.5px;color:var(--muted);font-style:italic;margin-top:8px}
+
+  @media (max-width:840px){
+    .shell{grid-template-columns:1fr}
+    nav.side{position:static;display:flex;flex-wrap:wrap;gap:4px}
+    nav.side a{border-left:none;border-bottom:2px solid transparent;border-radius:6px}
+    nav.side a.on{border-bottom-color:var(--gold)}
+    nav.side .gen{display:none}
+    .c3,.c4,.c6,.c8{grid-column:span 12}
+  }
+  @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
+
+  .media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+  .mslot{border:1px solid var(--line);border-radius:8px;padding:10px;background:#FDFCF9;display:flex;flex-direction:column;gap:7px;font-size:12.5px}
+  .mslot img{max-height:56px;max-width:100%;object-fit:contain;align-self:flex-start;background:#fff;border:1px solid #EEE;padding:2px;border-radius:4px}
+  .mslot input[type=file]{font-size:12px}
+  .dim{color:var(--muted)}
+  .blocked{opacity:.45;pointer-events:none;user-select:none}
+  .ai-status{font-size:13px;color:var(--muted);margin-left:10px}
+
+  .sentrow{display:flex;gap:7px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+  .sentrow input[type=number]{width:76px;padding:7px 8px}
+  .sentrow input[id^="sn_f"]{width:120px}
+  .xbtn{border:none;background:#F3E3E1;color:#8C2F28;border-radius:6px;width:28px;height:28px;cursor:pointer;font-size:13px}
+  .xbtn:hover{background:#EAC9C5}
+  .eghint{font-size:11.5px;color:#8B9099;margin-top:3px;font-style:italic;line-height:1.35}
+
+  input[type=number]{appearance:textfield;-moz-appearance:textfield}
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  #genMsg.err{color:#A33}
+
+  .brow{display:flex;align-items:flex-end;gap:9px;flex-wrap:wrap;margin-bottom:8px;
+        padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:#FBFAF5}
+  .brow .mini{display:flex;flex-direction:column;gap:3px;font-size:11px;font-weight:600;
+        color:var(--muted);letter-spacing:.2px;text-transform:uppercase}
+  .brow .mini input,.brow .mini select{width:82px;padding:7px 8px;font-size:14px}
+  .brow .mini.wide input{width:118px}
+  .brow .tag{font-weight:700;color:var(--gold);align-self:center;font-size:13px}
+  .brow .sep{color:var(--muted);align-self:center;font-size:12.5px;padding-bottom:2px}
+  .brow .xbtn{align-self:center}
+
+  .f > label{flex:0 0 auto}
+  .f > .eghint{flex:0 0 auto}
+
+  .brow .mini.date input{width:150px}
+  /* probation period input group */
+  .ppgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:2px}
+  .ppcell{display:flex;flex-direction:column;gap:4px}
+  .ppcell input{width:100%;padding:9px 10px;font-size:15px;text-align:center}
+  .ppcell span{font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;
+        color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="seal">PPA</div>
+    <div>
+      <h1>Post-Sentence Investigation Report Generator</h1>
+      <p>PPA Form 3 · Parole and Probation Administration · Department of Justice</p>
+    </div>
+  </div>
+</header>
+<div class="caption">
+  <div class="wrap">
+    <span><b>PSIR Re:</b> <span id="capName">—</span></span>
+    <span><b>Docket No.:</b> <span id="capDocket">—</span></span>
+    <span><b>Criminal Case No.:</b> <span id="capCase">—</span></span>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="side" id="sideNav">
+    <a href="#s-brand">Letterhead &amp; Footer</a>
+    <a href="#s-letter">Transmittal Letter</a>
+    <a href="#s-ident">I. Identifying Data</a>
+    <a href="#s-crim">II. Criminal History</a>
+    <a href="#s-socio">III. Socio-Economic</a>
+    <a href="#s-analysis">IV. Analysis &amp; Evaluation</a>
+    <a href="#s-thrusts">V. Rehabilitation Thrusts</a>
+    <a href="#s-reco">VI. Recommendation</a>
+    <a href="#s-sign">Signatories</a>
+    <a href="#s-generate">Generate</a>
+      </nav>
+
+  <main>
+    <!-- ============ LETTERHEAD & FOOTER ============ -->
+    <section class="card" id="s-brand">
+      <h2>Letterhead &amp; Footer</h2>
+      <p class="hint">Text and images printed in the page-1 letterhead, the PSIR letterhead, and the page-1 footer banner. Fonts, sizes, positions and the &ldquo;CONFIDENTIAL&rdquo; footer on PSIR pages stay exactly as in the official form.</p>
+      <div class="grid">
+        <div class="f c6"><label>Regional Office (letter header)</label><input type="text" id="brRegion" value="Regional Office No. VII"></div>
+        <div class="f c6"><label>Region line (PSIR letterhead)</label><input type="text" id="brRegion2" value="REGION VII"></div>
+        <div class="f c12"><label>Office Name (printed in CAPS)</label><input type="text" id="brOffice" value="TALISAY CITY PAROLE AND PROBATION OFFICE"></div>
+        <div class="f c12"><label>Office Address</label><input type="text" id="brAddr" value="G/F Hall of Justice, Lawaan II, Talisay City, Cebu"></div>
+        <div class="f c4"><label>Telephone No.</label><input type="text" id="brTel" value="032-239-8358"></div>
+        <div class="f c4"><label>Email</label><input type="text" id="brEmail" value="talisay.ppa7doj@gmail.com"></div>
+        <div class="f c4"><label>Website</label><input type="text" id="brWeb" value="https://probation.gov.ph"></div>
+      </div>
+      <h3 class="sub">Images</h3>
+      <p class="hint">Upload a replacement for any image below — it is automatically fitted into the same spot at the same size, so the layout never shifts. Leave untouched to keep the original.</p>
+      <div class="media-grid" id="mediaGrid"></div>
+    </section>
+
+    <!-- ============ TRANSMITTAL LETTER ============ -->
+    <section class="card" id="s-letter">
+      <h2>Transmittal Letter</h2>
+      <p class="hint">Details for the cover letter addressed to the court. The letterhead, logos, fonts and layout are reproduced exactly from the official PPA Form 3 file (PPA FORM 3, Revision 002 sample).</p>
+
+      <details class="office">
+        <summary>Office details used in the probation conditions (the letterhead, logos and fonts come straight from the official template)</summary>
+        <div class="grid">
+          <div class="f c6"><label>Office Name</label><input type="text" id="officeName" value="Talisay City Parole and Probation Office"></div>
+          <div class="f c6"><label>Office Address <span class="opt">(as worded in Condition No. 2)</span></label><input type="text" id="officeAddress" value="Ground Floor, Hall of Justice, Lawaan II, Talisay City, Cebu"></div>
+        </div>
+      </details>
+
+      <div class="grid">
+        <div class="f c4"><label>Date of Letter / Report</label><input type="date" id="reportDate"></div>
+        <div class="f c4"><label>Investigation Docket No.</label><input type="text" id="docketNo" placeholder="e.g., PI-2026-01-00001"></div>
+        <div class="f c4"><label>Criminal Case No.</label><input type="text" id="criminalCaseNo" placeholder="e.g., TCR-2026-12345"></div>
+        <div class="f c6"><label>Presiding Judge (Hon.)</label><input type="text" id="judgeName" placeholder="e.g., JOY ANGELICA P. SANTOS-DOCTOR"></div>
+        <div class="f c6"><label>Judge's Position</label><input type="text" id="judgePosition" value="Presiding Judge"></div>
+        <div class="f c3"><label>Court</label>
+          <select id="courtType"><option>RTC</option><option>MTC</option><option>MTCC</option><option>MCTC</option><option value="FC">FC (Family Court)</option><option value="__other">Others&hellip;</option></select>
+          <input type="text" id="courtTypeOther" placeholder="e.g., CTA" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c3"><label>Branch No.</label><input type="text" id="courtBranchNo" placeholder="e.g., 66"></div>
+        <div class="f c3"><label>Court City</label><input type="text" id="courtCity" value="Talisay"><div class="eghint" id="courtLocPreview">Prints as: City of Talisay, Cebu</div></div>
+        <div class="f c3"><label>Province</label><input type="text" id="courtProv" value="Cebu"></div>
+        <div class="f c6"><label>Date of Court Order</label><input type="date" id="orderDate"></div>
+        <div class="f c6"><label>Date Order Received by Office</label><input type="date" id="receivedDate"></div>
+      </div>
+    </section>
+
+    <!-- ============ I. IDENTIFYING DATA ============ -->
+    <section class="card" id="s-ident">
+      <h2><span class="num">I.</span>Identifying Data</h2>
+      <p class="hint">Petitioner's personal details as they will appear in the report.</p>
+      <div class="media-grid" id="photoSlotMount" style="grid-template-columns:minmax(250px,420px);margin-bottom:12px"></div>
+      <div class="grid">
+        <div class="f c4"><label>Last Name</label><input type="text" id="lastName" placeholder="e.g., DELA CRUZ"></div>
+        <div class="f c4"><label>First Name</label><input type="text" id="firstName" placeholder="e.g., JUAN"></div>
+        <div class="f c4"><label>Middle Name</label><input type="text" id="middleName" placeholder="e.g., SANTOS"></div>
+        <div class="f c6"><label>True Name <span class="opt">(only if different)</span></label><input type="text" id="trueName"><div class="eghint">If filled, the Recommendation adds &ldquo;whose true name is ___&rdquo;.</div></div>
+        <div class="f c6"><label>Alias/es <span class="opt">(auto-quoted: &ldquo;Juan&rdquo;)</span></label><input type="text" id="alias" placeholder="e.g., Juan"></div>
+        <div class="f c3"><label>Sex</label>
+          <select id="sex"><option value="Female">Female</option><option value="Male">Male</option><option value="__other">Others&hellip;</option></select>
+          <input type="text" id="sexOther" placeholder="Specify" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c3"><label>Gender Preference</label>
+          <select id="genderPref"><option>Heterosexual</option><option>Homosexual</option><option>Bisexual</option><option value="__other">Others&hellip;</option></select>
+          <input type="text" id="genderPrefOther" placeholder="Specify" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c3"><label>Birthday</label><input type="date" id="birthday"></div>
+        <div class="f c3"><label>Age <span class="opt">(auto)</span></label><input type="text" id="age" placeholder="—"></div>
+        <div class="f c4"><label>Civil Status</label>
+          <select id="civilStatus">
+            <option>Single</option><option>Single w/ CLS</option><option>Married</option>
+            <option>Widowed</option><option>Separated</option><option value="__other">Others…</option>
+          </select>
+          <input type="text" id="civilOther" placeholder="Specify civil status" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c4"><label>Spouse <span class="opt">(auto &ldquo;N/A&rdquo; if Single)</span></label><input type="text" id="spouse" value="Not Applicable" placeholder="e.g., Ana Dela Cruz"></div>
+        <div class="f c4"><label>Educational Attainment</label><input type="text" id="education" placeholder="e.g., Highschool Level"></div>
+        <div class="f c4"><label>Religion</label>
+          <select id="religion">
+            <option>Roman Catholic</option><option>Islam</option><option>Iglesia ni Cristo</option>
+            <option>Born Again Christian</option><option>Protestant</option><option>Seventh-day Adventist</option>
+            <option>Jehovah&rsquo;s Witnesses</option><option>Aglipayan</option><option>Buddhism</option>
+            <option value="__other">Others…</option>
+          </select>
+          <input type="text" id="religionOther" placeholder="Specify religion" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c4"><label>Occupation</label><input type="text" id="occupation" placeholder="e.g., Vendor"></div>
+        <div class="f c4"><label>Nationality</label>
+          <select id="nationality">
+            <option>Filipino</option><option>American</option><option>Chinese</option>
+            <option>Japanese</option><option>Korean</option><option value="__other">Others…</option>
+          </select>
+          <input type="text" id="nationalityOther" placeholder="Specify nationality" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c6"><label>Mother (Maiden Name)</label><input type="text" id="motherName" placeholder="e.g., Maria L. Santos"></div>
+        <div class="f c6"><label>Father</label><input type="text" id="fatherName" placeholder="e.g., Pedro M. Dela Cruz"></div>
+        <div class="f c12"><label>Identifying / Remarkable Features</label><input type="text" id="features" placeholder="e.g., Mole on right cheek; scar on left arm."></div>
+        <div class="f c12"><label>Present Address</label><input type="text" id="presentAddress" placeholder="e.g., Sitio Sampaguita, Brgy. San Roque, Talisay City, Cebu"></div>
+        <div class="f c12"><label>Permanent Address <span class="opt">(leave blank if same as present)</span></label><input type="text" id="permanentAddress"></div>
+      </div>
+    </section>
+
+    <!-- ============ II. CRIMINAL HISTORY ============ -->
+    <section class="card" id="s-crim">
+      <h2><span class="num">II.</span>Criminal History</h2>
+      <h3 class="sub">A. Present Offense</h3>
+      <div class="grid">
+        <div class="f c12"><label>Charged With <span class="opt">— prints as &ldquo;Viol. of Sec. ___&rdquo;; each offense has its own date; add a row per offense &mdash; identical rows are combined as &ldquo;(2 Cts.) &hellip;&rdquo;</span></label>
+          <div id="chargedList"></div>
+          <button type="button" class="btn ghost" id="addChargedBtn" style="align-self:flex-start;margin-top:4px">+ Add offense</button>
+          <div class="eghint" id="chargedPreview"></div>
+        </div>
+        
+        <div class="f c12"><label>Convicted Of <span class="opt">— prints as &ldquo;Viol. of Sec. ___&rdquo;; each offense has its own date; add a row per offense &mdash; identical rows are combined as &ldquo;(2 Cts.) &hellip;&rdquo;</span></label>
+          <div id="convictedList"></div>
+          <button type="button" class="btn ghost" id="addConvictedBtn" style="align-self:flex-start;margin-top:4px">+ Add offense</button>
+          <div class="eghint" id="convictedPreview"></div>
+        </div>
+        
+        <div class="f c12"><label>Sentence(s) <span class="opt">— minimum Y / M / D, an optional maximum after &ldquo;to&rdquo;, and/or a fine; add a row per count</span></label>
+          <div id="sentList"></div>
+          <button type="button" class="btn ghost" id="addSentenceBtn" style="align-self:flex-start;margin-top:4px">+ Add another sentence</button>
+          <div class="eghint" id="sentPreview"></div>
+        </div>
+        <div class="f c4"><label>Sentencing Judge (Hon.)</label><input type="text" id="sentJudge" placeholder="e.g., Mundlyn G. Misal-Martin"></div>
+        <div class="f c2" style="grid-column:span 2"><label>Sentencing Court</label>
+          <select id="sentCourtType"><option>RTC</option><option>MTC</option><option>MTCC</option><option>MCTC</option><option value="FC">FC (Family Court)</option><option value="__other">Others&hellip;</option></select>
+          <input type="text" id="sentCourtTypeOther" placeholder="e.g., CTA" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c2" style="grid-column:span 2"><label>Branch No.</label><input type="text" id="sentBranchNo" placeholder="e.g., 65"></div>
+        <div class="f c2" style="grid-column:span 2"><label>Court City</label><input type="text" id="sentCourtCity" value="Talisay"><div class="eghint" id="sentCourtLocPreview">Prints as: City of Talisay, Cebu</div></div>
+        <div class="f c2" style="grid-column:span 2"><label>Province</label><input type="text" id="sentCourtProv" value="Cebu"></div>
+        
+        <div class="f c6">
+          <label>Custodial Status</label>
+          <div class="inline-choices" id="custodialWrap">
+            <label class="choice"><input type="radio" name="custodial" value="Bail" checked> Bail</label>
+            <label class="choice"><input type="radio" name="custodial" value="Detention"> Detention</label>
+            <label class="choice"><input type="radio" name="custodial" value="ROR"> ROR</label>
+          </div>
+        </div>
+        <div class="f c6 det-only" style="display:none"><label>Detention Facility <span class="opt">(optional — prints as &ldquo;Detention &ndash; ___&rdquo;)</span></label><input type="text" id="detFacility" placeholder="e.g., BJMP Minglanilla"></div>
+        <div class="f c6 ror-only" style="display:none"><label>ROR Custodian</label><input type="text" id="rorCustodian"></div>
+        <div class="f c6"><label>Address <span class="opt">(custodial status &mdash; bail / detention / custodian address)</span></label><input type="text" id="custodialAddress"></div>
+      </div>
+
+      <h3 class="sub">B. Prior and Pending Records</h3>
+      <table class="prior">
+        <thead>
+          <tr><th>Agency</th><th>Criminal Case No.</th><th>Offense</th><th>Date Charged</th><th>Decision / Status</th></tr>
+        </thead>
+        <tbody id="priorBody"></tbody>
+      </table>
+      <p class="note">Note: &ldquo;The office reserves the right to submit supplemental report once records verification from the institutions and/or law-enforcement agencies yields derogatory result or previous criminal records.&rdquo;</p>
+    </section>
+
+    <!-- ============ III. SOCIO-ECONOMIC ============ -->
+    <section class="card" id="s-socio">
+      <h2><span class="num">III.</span>Socio-Economic Background</h2>
+      <p class="hint">Select one rating per category — these become the checked boxes in the document.</p>
+      <div class="rate-grid" id="rateGrid"></div>
+    </section>
+
+    <!-- ============ IV. ANALYSIS ============ -->
+    <section class="card" id="s-analysis">
+      <h2><span class="num">IV.</span>Analysis and Evaluation</h2>
+      <p class="hint">A template is pre-filled from the form details. Edit freely — items in [brackets] are for you to complete. Separate paragraphs with a blank line.</p>
+      <button class="btn ghost" type="button" id="regenAnalysisBtn">↻ Refresh template from form details</button>
+      <div style="height:10px"></div>
+      <textarea id="analysisText" spellcheck="true"></textarea>
+    </section>
+
+    <!-- ============ V. THRUSTS ============ -->
+    <section class="card" id="s-thrusts">
+      <h2><span class="num">V.</span>Projected Thrusts of Rehabilitation</h2>
+      <p class="hint">Untick any that don't apply. You can also add extra items.</p>
+      <p class="hint" id="thrustNote" style="display:none;color:#A33">Recommendation is set to Denied — this section will print as &ldquo;Not Applicable&rdquo;.</p>
+      <div id="thrustWrap">
+      <div class="choices" id="thrustList"></div>
+      <div style="height:10px"></div>
+      <div class="f"><label>Additional thrusts <span class="opt">(one per line, optional)</span></label>
+        <textarea id="thrustExtra" style="min-height:60px" placeholder="e.g., Livelihood skills training"></textarea>
+      </div>
+    </div>
+    </section>
+
+    <!-- ============ VI. RECOMMENDATION ============ -->
+    <section class="card" id="s-reco">
+      <h2><span class="num">VI.</span>Recommendation</h2>
+      <div class="grid">
+        <div class="f c6">
+          <label>Recommendation</label>
+          <select id="recoVerdict">
+            <option value="GRANTED">GRANTED — recommend probation</option>
+            <option value="DENIED">DENIED — unfavorable evaluation</option>
+            <option value="LEGAL_DQ">DENIED — Legal Disqualification (Sec. 9, P.D. 968)</option>
+            <option value="WITHDRAWN">WITHDRAWN — petitioner withdrew the application</option>
+            <option value="MOOT">MOOT and ACADEMIC — e.g., sentence fully served</option>
+          </select>
+        </div>
+        <div class="f c6 grant-only"><label>Probation Period <span class="opt">— spelled out automatically</span></label>
+          <div class="ppgrid">
+            <div class="ppcell"><input type="number" min="0" id="pp_y" placeholder="0"><span>Years</span></div>
+            <div class="ppcell"><input type="number" min="0" id="pp_m" placeholder="0"><span>Months</span></div>
+            <div class="ppcell"><input type="number" min="0" id="pp_d" placeholder="0"><span>Days</span></div>
+          </div>
+          <div class="eghint" id="periodPreview"></div>
+        </div>
+        <div class="f c12 grant-only"><label>Residence Address <span class="opt">(as stated in the conditions — auto-copies from Present Address until you edit it)</span></label><input type="text" id="residence" placeholder="e.g., Sitio Sampaguita, Brgy. San Roque, Talisay City, Cebu"></div>
+        <div class="c12" id="dqPanel" style="display:none">
+          <h3 class="sub">Legal Disqualification — Sec. 9, P.D. 968 as amended by R.A. 10707</h3>
+          <p class="hint">Tick the ground(s) that apply. The quoted provision(s) are inserted in bold italics at the end of the Analysis and Evaluation, and the Thrusts section prints as &ldquo;Not Applicable&rdquo;.</p>
+          <div class="choices" id="dqList"></div>
+        </div>
+      </div>
+      <div id="condWrap">
+      <h3 class="sub">Conditions of Probation</h3>
+      <p class="hint">Untick any condition that does not apply. Wording auto-adjusts to the petitioner's details.</p>
+      <div class="choices" id="condList"></div>
+      <div style="height:10px"></div>
+      <div class="f"><label>Additional conditions <span class="opt">(one per line, optional)</span></label>
+        <textarea id="condExtra" style="min-height:60px"></textarea>
+      </div>
+    </div>
+    </section>
+
+    <!-- ============ SIGNATORIES ============ -->
+    <section class="card" id="s-sign">
+      <h2>Signatories</h2>
+      <p class="hint">Pre-filled with office defaults — change as needed.</p>
+      <div class="grid">
+        <div class="f c8"><label>Investigating Officer</label>
+          <select id="officerSel">
+            <option value="0">SrPPO — MIRASOL A. HERBITO</option>
+            <option value="1">PPO2 — JOUANA O. EJARES</option>
+            <option value="__custom">Custom…</option>
+          </select>
+        </div>
+        <div class="f c3" style="display:none"><label>Officer Rank</label><input type="text" id="officerRank" value="SrPPO"></div>
+        <div class="f c5" style="grid-column:span 5;display:none"><label>Officer Name</label><input type="text" id="officerName" value="MIRASOL A. HERBITO"></div>
+        <div class="f c4"><label>Officer Title</label><input type="text" id="officerTitle" value="Investigating Officer"></div>
+        <div class="f c6"><label>Chief Probation and Parole Officer</label><input type="text" id="cppoName" value="LYLE E. DACLAN"></div>
+        <div class="f c6"><label>CPPO Title</label><input type="text" id="cppoTitle" value="Chief Probation and Parole Officer"></div>
+        <div class="f c4"><label>Date Prepared</label><input type="date" id="datePrepared"></div>
+        <div class="f c4"><label>Date Approved</label><input type="date" id="dateApproved"></div>
+        <div class="f c4"><label>Place of Signing</label><input type="text" id="signPlace" value="Talisay City, Cebu, Philippines"></div>
+      </div>
+    </section>
+    <!-- ============ GENERATE ============ -->
+    <section class="card" id="s-generate" style="text-align:center">
+      <h2>Generate the Document</h2>
+      <p class="hint">Review the form above, then create the Word file.</p>
+      <button class="btn primary" id="genBtn" style="background:var(--gold);color:#1A1608;padding:13px 44px;font-size:16px">⬇ Generate .docx</button>
+      <p class="msg" id="genMsg" style="color:var(--muted);font-size:13.5px;margin:12px 0 0"></p>
+    </section>
+  </main>
+</div>
+
+
+
+<script src="./jszip.min.js"></script>
+<script src="./template-data.js"></script>
+<script src="./app-logic.js"></script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Final Report Generator — Talisay City PPO</title>
+<style>
+  :root{
+    --navy:#14243D;
+    --navy-2:#1E3557;
+    --parchment:#F6F4EE;
+    --card:#FFFFFF;
+    --gold:#A8842C;
+    --gold-soft:#E7DDC2;
+    --ink:#23262B;
+    --muted:#6E7480;
+    --line:#DDD8CC;
+    --focus:#2E5AAC;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--parchment); color:var(--ink);
+    font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  /* ---------- Top band ---------- */
+  header.top{
+    background:var(--navy); color:#F4F1E6; padding:22px 24px 18px;
+    border-bottom:4px solid var(--gold);
+  }
+  header.top .wrap{max-width:1100px;margin:0 auto;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .seal{
+    width:52px;height:52px;border:2px solid var(--gold);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;flex:0 0 auto;
+    font-family:Georgia,"Times New Roman",serif;font-weight:700;color:var(--gold);letter-spacing:1px;
+  }
+  header.top h1{
+    margin:0;font-family:Georgia,"Times New Roman",serif;font-size:21px;font-weight:700;letter-spacing:.4px;
+  }
+  header.top p{margin:2px 0 0;font-size:12.5px;color:#C9C3AE;letter-spacing:.6px;text-transform:uppercase}
+  /* Live caption strip — mimics a document tab */
+  .caption{
+    background:var(--navy-2); color:#EDE8D8; font-size:13px;
+    padding:8px 24px; border-bottom:1px solid rgba(255,255,255,.12);
+  }
+  .caption .wrap{max-width:1100px;margin:0 auto;display:flex;gap:24px;flex-wrap:wrap}
+  .caption b{color:var(--gold-soft);font-weight:600}
+
+  /* ---------- Layout ---------- */
+  .shell{max-width:1100px;margin:26px auto 90px;padding:0 20px;display:grid;grid-template-columns:210px 1fr;gap:26px}
+  nav.side{position:sticky;top:16px;align-self:start}
+  nav.side a{
+    display:block;padding:8px 12px;margin-bottom:2px;text-decoration:none;color:var(--muted);
+    font-size:13.5px;border-left:3px solid transparent;border-radius:0 6px 6px 0;
+  }
+  nav.side a:hover{color:var(--navy);background:#EFEBDF}
+  nav.side a.on{color:var(--navy);border-left-color:var(--gold);background:#F0ECE0;font-weight:600}
+  nav.side .gen{
+    margin-top:14px;width:100%;
+  }
+
+  section.card{
+    background:var(--card);border:1px solid var(--line);border-radius:10px;
+    padding:22px 24px;margin-bottom:22px;box-shadow:0 1px 2px rgba(20,36,61,.05);
+  }
+  section.card h2{
+    margin:0 0 4px;font-family:Georgia,"Times New Roman",serif;font-size:18px;color:var(--navy);
+  }
+  section.card h2 .num{color:var(--gold);margin-right:8px;font-size:15px;letter-spacing:1px}
+  section.card p.hint{margin:0 0 16px;font-size:13px;color:var(--muted)}
+  h3.sub{
+    margin:20px 0 10px;font-size:12.5px;letter-spacing:1.2px;text-transform:uppercase;
+    color:var(--navy);border-bottom:1px solid var(--line);padding-bottom:6px;font-weight:700;
+  }
+
+  .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px 14px;align-items:start}
+  .f{display:flex;flex-direction:column;gap:4px}
+  .c2{grid-column:span 2}.c3{grid-column:span 3}.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c8{grid-column:span 8}.c12{grid-column:span 12}
+  label{font-size:12.5px;font-weight:600;color:#3C4250}
+  label .opt{font-weight:400;color:var(--muted)}
+  input[type=text],input[type=date],input[type=email],input[type=number],select,textarea{
+    font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:#FDFCF9;color:var(--ink);
+    width:100%;
+  }
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--focus);outline-offset:1px;border-color:var(--focus)}
+  textarea{resize:vertical;min-height:90px;line-height:1.55}
+  #secDText,#secEText{font-family:Georgia,"Times New Roman",serif;font-size:14.5px}
+  #secDText{min-height:220px}
+  #secEText{min-height:150px}
+
+  .btn{
+    font:inherit;font-weight:600;border:none;border-radius:8px;padding:11px 20px;cursor:pointer;
+  }
+  .btn.primary{background:var(--navy);color:#F4F1E6}
+  .btn.primary:hover{background:var(--navy-2)}
+  .btn.ghost{background:transparent;color:var(--navy);border:1px solid var(--navy);padding:8px 14px;font-size:13.5px}
+  .btn.ghost:hover{background:#EFEBDF}
+  .btn:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+  .genbar{
+    position:fixed;left:0;right:0;bottom:0;background:rgba(20,36,61,.97);
+    padding:12px 20px;display:flex;justify-content:center;gap:14px;align-items:center;
+    box-shadow:0 -4px 14px rgba(0,0,0,.18);
+  }
+  .genbar .msg{color:#D9D2BC;font-size:13.5px}
+  .genbar #genMsg2.err{color:#F2B8B5}
+  .genbar .btn.primary{background:var(--gold);color:#1A1608;padding:12px 30px;font-size:15.5px}
+  .genbar .btn.primary:hover{background:#C09A38}
+  .genbar .btn.primary:disabled{opacity:.55;cursor:wait}
+
+  details.office{border:1px dashed var(--gold);border-radius:8px;padding:0;background:#FBF8EF;margin-bottom:16px}
+  details.office summary{
+    cursor:pointer;padding:11px 14px;font-weight:600;color:var(--navy);font-size:13.5px;list-style:none;
+  }
+  details.office summary::before{content:"▸ ";color:var(--gold)}
+  details.office[open] summary::before{content:"▾ "}
+  details.office .grid{padding:4px 14px 16px}
+
+  .note{font-size:12.5px;color:var(--muted);font-style:italic;margin-top:8px}
+
+  @media (max-width:840px){
+    .shell{grid-template-columns:1fr}
+    nav.side{position:static;display:flex;flex-wrap:wrap;gap:4px}
+    nav.side a{border-left:none;border-bottom:2px solid transparent;border-radius:6px}
+    nav.side a.on{border-bottom-color:var(--gold)}
+    nav.side .gen{display:none}
+    .c2,.c3,.c4,.c5,.c6,.c8{grid-column:span 12}
+  }
+  @media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
+
+  .eghint{font-size:11.5px;color:#8B9099;margin-top:4px;font-style:italic;line-height:1.4}
+  #genMsg2.err{color:#A33}
+
+  input[type=number]{appearance:textfield;-moz-appearance:textfield}
+  input[type=number]::-webkit-outer-spin-button,
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+
+
+  .media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+  .mslot{border:1px solid var(--line);border-radius:8px;padding:10px;background:#FDFCF9;display:flex;flex-direction:column;gap:7px;font-size:12.5px}
+  .mslot img{max-height:56px;max-width:100%;object-fit:contain;align-self:flex-start;background:#fff;border:1px solid #EEE;padding:2px;border-radius:4px}
+  .mslot input[type=file]{font-size:12px}
+  .dim{color:var(--muted)}
+  .drow{display:grid;grid-template-columns:150px 1fr 110px 130px 44px;gap:8px;margin-bottom:8px;align-items:center}
+  .drow.case{grid-template-columns:1fr 44px}
+  .drow input,.drow select{width:100%;margin:0}
+  .drow .offCustom{grid-column:2/5}
+  @media(max-width:700px){
+    .drow{grid-template-columns:1fr 1fr 44px}
+    .drow .offMode{grid-column:1/3}
+    .drow .offCustom{grid-column:1/3}
+  }
+  .drow .rm{flex:0 0 auto;border:1px solid var(--line);background:#fff;color:#A33;border-radius:6px;padding:7px 11px;cursor:pointer;font-size:13px}
+  .drow .rm:hover{background:#FBEFEF}
+  .addrow{align-self:flex-start;padding:5px 12px;font-size:12.5px;margin-top:2px}
+  .f > label{flex:0 0 auto}
+  .f > .eghint{flex:0 0 auto}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="seal">PPA</div>
+    <div>
+      <h1>Final Report Generator</h1>
+      <p>PPA Form 9 · Parole and Probation Administration · Department of Justice</p>
+    </div>
+  </div>
+</header>
+<div class="caption">
+  <div class="wrap">
+    <span><b>FR Re:</b> <span id="capName">—</span></span>
+    <span><b>Docket No.:</b> <span id="capDocket">—</span></span>
+    <span><b>Criminal Case No.:</b> <span id="capCase">—</span></span>
+  </div>
+</div>
+
+<div class="shell">
+  <nav class="side" id="sideNav">
+    <a href="#s-brand">Letterhead</a>
+    <a href="#s-letter">Transmittal Letter</a>
+    <a href="#s-ident">I. Identifying Data</a>
+    <a href="#s-report">II. Report Sections</a>
+    <a href="#s-reco">III. Recommendation</a>
+    <a href="#s-sign">Signatories</a>
+    <a href="#s-generate">Generate</a>
+  </nav>
+
+  <main>
+    <!-- ============ LETTERHEAD ============ -->
+    <section class="card" id="s-brand">
+      <h2>Letterhead</h2>
+      <p class="hint">Text printed in the letterhead of the transmittal letter (PPA Form 35) and the Final Report (PPA Form 9). The generator carries an exact copy of the official form &mdash; every font, color, image, margin and spacing is preserved verbatim; only the values you enter are substituted.</p>
+      <div class="grid">
+        <div class="f c6"><label>Regional Office</label><input type="text" id="brRegion" value="Regional Office No. VII"></div>
+        <div class="f c6"><label>Office Name (printed in CAPS)</label><input type="text" id="brOffice" value="TALISAY CITY PAROLE AND PROBATION OFFICE"></div>
+        <div class="f c12"><label>Office Address</label><input type="text" id="brAddr" value="G/F Hall of Justice, Lawaan II, Talisay City, Cebu"></div>
+        <div class="f c4"><label>Telephone No.</label><input type="text" id="brTel" value="032-239-8358"></div>
+        <div class="f c4"><label>Email</label><input type="text" id="brEmail" value="talisay.ppa7doj@gmail.com"></div>
+        <div class="f c4"><label>Website</label><input type="text" id="brWeb" value="https://probation.gov.ph"></div>
+      </div>
+      <h3 class="sub">Images</h3>
+      <p class="hint">These are the official letterhead and footer images from the form — the PPA seal, Bagong Pilipinas logo, ISO marks and the &ldquo;Redeeming Lives&hellip;&rdquo; banner. Upload a replacement for any of them and it is automatically fitted into the same spot at the same size, so the layout never shifts. Leave untouched to keep the original.</p>
+      <div class="media-grid" id="mediaGrid"></div>
+    </section>
+
+    <!-- ============ TRANSMITTAL LETTER ============ -->
+    <section class="card" id="s-letter">
+      <h2>Transmittal Letter</h2>
+      <p class="hint">Details for the cover letter (PPA Form 35) addressed to the court, submitting the Final Report for resolution.</p>
+      <div class="grid">
+        <div class="f c4"><label>Date of Letter / Report</label><input type="date" id="reportDate"></div>
+        <div class="f c4"><label>Salutation</label>
+          <select id="salutation"><option>Sir:</option><option>Madam:</option></select>
+        </div>
+        <div class="f c4"><label>Supervision Docket No.</label><input type="text" id="docketNo" placeholder="e.g., PS-2024-03-00150"></div>
+        <div class="f c6"><label>Presiding Judge (Hon.)</label><input type="text" id="judgeName" placeholder="e.g., BENISON M. MAHAWAN"></div>
+        <div class="f c6"><label>Judge's Position</label><input type="text" id="judgePosition" value="Acting Presiding Judge"></div>
+        <div class="f c3"><label>Court</label>
+          <select id="courtType"><option>RTC</option><option>MTC</option><option>MTCC</option></select>
+        </div>
+        <div class="f c3"><label>Branch No.</label><input type="number" min="1" id="courtBranchNo" placeholder="e.g., 65"></div>
+        <div class="f c3"><label>Court City</label><input type="text" id="courtCity" placeholder="e.g., Talisay"></div>
+        <div class="f c3"><label>Province</label><input type="text" id="courtProv" value="Cebu"><div class="eghint" id="courtPreview"></div></div>
+        <div class="f c6"><label>Date of Probation Order</label><input type="date" id="orderDate"></div>
+        <div class="f c6"><label>Date Order Received by Office</label><input type="date" id="receivedDate"></div>
+      </div>
+    </section>
+
+    <!-- ============ I. IDENTIFYING DATA ============ -->
+    <section class="card" id="s-ident">
+      <h2><span class="num">I.</span>Identifying Data</h2>
+      <p class="hint">Probationer's personal and case details as they will appear in the Final Report caption and data fields.</p>
+      <div class="grid">
+        <div class="f c4"><label>Last Name</label><input type="text" id="lastName" placeholder="e.g., MIRANDA"></div>
+        <div class="f c4"><label>First Name</label><input type="text" id="firstName" placeholder="e.g., JHONARD"></div>
+        <div class="f c4"><label>Middle Name</label><input type="text" id="middleName" placeholder="e.g., CAÑADA"></div>
+        <div class="f c6"><label>Alias <span class="opt">(auto-quoted: “Nads” — blank prints “Not Applicable”)</span></label><input type="text" id="alias" placeholder="e.g., Nads"></div>
+        <div class="f c3"><label>Sex</label>
+          <select id="sex"><option value="Male">Male</option><option value="Female">Female</option></select>
+        </div>
+        <div class="f c3"><label>Birthday <span class="opt">(auto-computes age)</span></label><input type="date" id="birthday"></div>
+        <div class="f c3"><label>Age <span class="opt">(auto)</span></label><input type="text" id="age" placeholder="e.g., 41 Years Old"></div>
+        <div class="f c4"><label>Marital Status</label>
+          <select id="civilStatus">
+            <option>Single</option><option>Single w/ CLS</option><option>Married</option>
+            <option>Common-Law Relationship</option><option>Widowed</option><option>Separated</option><option value="__other">Others…</option>
+          </select>
+          <input type="text" id="civilOther" placeholder="Specify marital status" style="display:none;margin-top:5px">
+        </div>
+        <div class="f c5"><label>Address / Whereabouts</label><input type="text" id="probAddr" placeholder="e.g., Panaghiusa 2, Tunghaan, Minglanilla, Cebu"></div>
+        <div class="f c12"><label>Criminal Case No(s). <span class="opt">(joined with “&”)</span></label>
+          <div id="caseRows"></div>
+          <button type="button" class="btn ghost addrow" id="addCaseBtn">+ Add case number</button>
+          <div class="eghint" id="casePreview">Prints as: —</div>
+        </div>
+        <div class="f c12"><label>Offense(s) of Which Convicted <span class="opt">(same R.A. &amp; Art. are merged, e.g., Secs. 5 &amp; 11)</span></label>
+          <div id="offenseRows"></div>
+          <button type="button" class="btn ghost addrow" id="addOffenseBtn">+ Add offense</button>
+          <div class="eghint" id="offensePreview">Prints as: —</div>
+        </div>
+        <div class="f c4"><label>Judge Granting Probation <span class="opt">(Hon. added)</span></label><input type="text" id="grantJudgeName" placeholder="e.g., Dennis C. Larrobis"></div>
+        <div class="f c2"><label>Court</label>
+          <select id="grantCourtType"><option>RTC</option><option>MTC</option><option>MTCC</option><option>MCTC</option></select>
+        </div>
+        <div class="f c2"><label>Br. No.</label><input type="number" min="1" id="grantBranchNo" placeholder="e.g., 76"></div>
+        <div class="f c2"><label>Court City</label><input type="text" id="grantCity" placeholder="e.g., Naga"></div>
+        <div class="f c2"><label>Province</label><input type="text" id="grantProv" value="Cebu"></div>
+        <div class="f c12"><div class="eghint" id="grantPreview"></div></div>
+        <div class="f c3"><label>Date Probation Granted</label><input type="date" id="grantDate"></div>
+        <div class="f c3"><label>Probation Period — Years</label><input type="number" id="periodYears" min="0" max="30" placeholder="e.g., 2"></div>
+        <div class="f c3"><label>Months <span class="opt">(if any)</span></label><input type="number" id="periodMonths" min="0" max="11" placeholder="e.g., 0"></div>
+        <div class="f c3"><label>Days <span class="opt">(if any)</span></label><input type="number" id="periodDays" min="0" max="31" placeholder="e.g., 0"></div>
+        <div class="f c12"><div class="eghint" id="periodPreview">Prints as: —</div></div>
+      </div>
+    </section>
+
+    <!-- ============ II. REPORT SECTIONS ============ -->
+    <section class="card" id="s-report">
+      <h2><span class="num">II.</span>Report Sections</h2>
+      <p class="hint">Sections A–E of the Final Report. Section A automatically refers to the Probation Order dated as set above.</p>
+
+      <h3 class="sub">B. Other Conditions (if conditions have been modified)</h3>
+      <div class="f"><input type="text" id="secB" value="None."></div>
+
+      <h3 class="sub">C. Program of Supervision</h3>
+      <div class="f"><label>One program item per line <span class="opt">(printed as a bulleted list)</span></label>
+        <textarea id="secC" style="min-height:130px"></textarea>
+      </div>
+
+      <h3 class="sub">D. Response of Probationer to Supervision Program</h3>
+      <div class="f"><label>Narrative <span class="opt">(blank line = new paragraph)</span></label>
+        <textarea id="secDText"></textarea>
+        <div class="eghint">Pre-filled with the standard wording. Pronouns follow the Sex field — use the reset button after changing it.</div>
+      </div>
+      <div style="height:8px"></div>
+      <button type="button" class="btn ghost" id="resetSecDBtn">↺ Reset Section D to default wording</button>
+
+      <h3 class="sub">E. Evaluation</h3>
+      <div class="f">
+        <textarea id="secEText"></textarea>
+      </div>
+      <div style="height:8px"></div>
+      <button type="button" class="btn ghost" id="resetSecEBtn">↺ Reset Section E to default wording</button>
+    </section>
+
+    <!-- ============ III. RECOMMENDATION ============ -->
+    <section class="card" id="s-reco">
+      <h2><span class="num">III.</span>Recommendation</h2>
+      <p class="hint">The recommendation paragraph is composed automatically — probation <b>TERMINATED</b>, civil rights restored, and criminal liability totally extinguished pursuant to Sec. 16 of P.D. 968 as amended by R.A. 10707.</p>
+      <div class="note" id="recoPreview">Fill in the probationer's name to preview the recommendation.</div>
+    </section>
+
+    <!-- ============ SIGNATORIES ============ -->
+    <section class="card" id="s-sign">
+      <h2>Signatories</h2>
+      <p class="hint">Pre-filled with office defaults — change as needed.</p>
+      <div class="grid">
+        <div class="f c8"><label>Supervising Officer</label>
+          <select id="officerSel">
+            <option value="0">SrPPO — MIRASOL A. HERBITO</option>
+            <option value="1">PPO2 — JOUANA O. EJARES</option>
+            <option value="__custom">Custom…</option>
+          </select>
+        </div>
+        <div class="f c3" style="display:none"><label>Officer Rank</label><input type="text" id="officerRank" value="SrPPO"></div>
+        <div class="f c5" style="grid-column:span 5;display:none"><label>Officer Name</label><input type="text" id="officerName" value="MIRASOL A. HERBITO"></div>
+        <div class="f c4"><label>Officer Title</label><input type="text" id="officerTitle" value="Supervising Officer"></div>
+        <div class="f c6"><label>Chief Probation and Parole Officer</label><input type="text" id="cppoName" value="LYLE E. DACLAN"></div>
+        <div class="f c6"><label>CPPO Title</label><input type="text" id="cppoTitle" value="Chief Probation and Parole Officer"></div>
+        <div class="f c4"><label>Place of Signing</label><input type="text" id="signPlace" value="City of Talisay, Cebu, Philippines"></div>
+      </div>
+    </section>
+
+    <!-- ============ GENERATE ============ -->
+    <section class="card" id="s-generate" style="text-align:center">
+      <h2>Generate the Document</h2>
+      <p class="hint">Review the form above, then create the Word file. Works fully offline.</p>
+      <button class="btn primary" id="genBtn" style="background:var(--gold);color:#1A1608;padding:13px 44px;font-size:16px">⬇ Generate .docx</button>
+      <p class="msg" id="genMsg" style="color:var(--muted);font-size:13.5px;margin:12px 0 0"></p>
+    </section>
+  </main>
+</div>
+
+<div class="genbar">
+  <button class="btn primary" id="genBtn2">⬇ Generate .docx</button>
+  <span class="msg" id="genMsg2"></span>
+</div>
+
+<script src="./template-data.js"></script>
+<script src="./app-logic.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output (electron-builder installers/exe's, Vite renderer bundle)
+/dist/
+renderer/dist/
+
+# Electron-builder / native build artifacts
+bridge/bin/
+
+# Logs
+npm-debug.log*
+*.log
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
