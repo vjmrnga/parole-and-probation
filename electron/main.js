@@ -14,6 +14,7 @@ const { runMigration } = require('../server/migrations/schema');
 const { createApp, startHttpsServer } = require('../server/app');
 const backupScheduler = require('../server/backup/scheduler');
 const { buildProbationersWorkbook } = require('../shared/reportBuilder');
+const { buildAttendanceOverviewWorkbook } = require('../shared/attendanceOverviewReportBuilder');
 const statusEnums = require('../shared/statusEnums');
 const documentChecklist = require('../shared/documentChecklist');
 const { parseProbationerImport, buildImportTemplate } = require('./importParser');
@@ -271,6 +272,13 @@ if (!gotLock) {
     return settingsStore.getAll();
   });
 
+  // The window runs fullscreen with no title bar, so there's no OS-provided
+  // close button — this is the renderer's only way to quit the app.
+  ipcMain.handle('quit-app', () => {
+    app.isQuittingForReal = true;
+    app.quit();
+  });
+
   ipcMain.handle('choose-folder', async () => {
     const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'createDirectory'] });
     if (result.canceled || result.filePaths.length === 0) return null;
@@ -308,6 +316,12 @@ if (!gotLock) {
   });
 
   ipcMain.handle('get-lan-addresses', () => lanAddresses());
+
+  // Used to label sessions server-side (see server/routes/auth.js) so a
+  // login from a different machine can be told apart from a re-login on
+  // this same one — os.hostname() rather than anything user-editable, so it
+  // can't be spoofed from the renderer.
+  ipcMain.handle('get-device-name', () => os.hostname());
 
   // ---- IPC: Branch Office pairing (trust-on-first-use) ----
   ipcMain.handle('fetch-remote-fingerprint', async (_e, headOfficeUrl) => {
@@ -351,6 +365,23 @@ if (!gotLock) {
     });
     if (result.canceled || !result.filePath) return { ok: false };
     const workbook = await buildProbationersWorkbook(rows);
+    await workbook.xlsx.writeFile(result.filePath);
+    return { ok: true, filePath: result.filePath };
+  });
+
+  // Attendance Overview export — the renderer sends the rows + filter
+  // metadata already loaded on screen (same shape ReportContent renders in
+  // AttendanceOverviewTable.jsx) plus any signature images it already
+  // fetched, and this builds the workbook here so exceljs's image embedding
+  // (Node-only) can be used.
+  ipcMain.handle('attendance-overview-export-excel', async (_e, payload) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Attendance Overview',
+      defaultPath: payload.defaultName,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false };
+    const workbook = await buildAttendanceOverviewWorkbook(payload);
     await workbook.xlsx.writeFile(result.filePath);
     return { ok: true, filePath: result.filePath };
   });

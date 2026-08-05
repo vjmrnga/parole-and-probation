@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Modal } from 'antd';
 import { ApiClient } from './api/apiClient.js';
 import { AppContext } from './AppContext.jsx';
 import ChooseModeScreen from './screens/ChooseModeScreen.jsx';
@@ -7,10 +8,18 @@ import BranchOfficeSetupScreen from './screens/BranchOfficeSetupScreen.jsx';
 import LoginScreen from './screens/LoginScreen.jsx';
 import AppShell from './screens/AppShell.jsx';
 import SplashScreen from './components/SplashScreen.jsx';
+import WelcomeEntranceScreen from './components/WelcomeEntranceScreen.jsx';
+import ExitAppButton from './components/ExitAppButton.jsx';
 
 // Splash stays up at least this long even if boot resolves instantly, so
 // it reads as an intentional cinematic intro rather than a flash.
 const SPLASH_MIN_MS = 2200;
+
+// How long the post-login welcome curtain (WelcomeEntranceScreen) stays up
+// before it starts fading, and how long that fade takes — mirrors the
+// boot-time splash's own timing (SPLASH_MIN_MS + its 700ms fade above).
+const WELCOME_HOLD_MS = 2000;
+const WELCOME_FADE_MS = 700;
 
 // Views worth restoring after a refresh. caseDetail/settings are excluded —
 // caseDetail needs a selectedProbationerId we don't persist, and settings is
@@ -30,6 +39,9 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [appView, setAppView] = useState('dashboard'); // dashboard | caseDetail | signatureAttendance | manageUsers | settings
   const [selectedProbationerId, setSelectedProbationerId] = useState(null);
+  const [welcomeUser, setWelcomeUser] = useState(null);
+  const [welcomeClosing, setWelcomeClosing] = useState(false);
+  const [sessionEndedMessage, setSessionEndedMessage] = useState('');
 
   const refreshSettings = useCallback(async () => {
     const s = await window.api.getSettings();
@@ -63,6 +75,8 @@ export default function App() {
     setUser(loggedInUser);
     setAppView('dashboard');
     setScreen('app');
+    setWelcomeClosing(false);
+    setWelcomeUser(loggedInUser);
   }, []);
 
   // Choose Mode → Head Office always starts the wizard fresh at step 0,
@@ -146,6 +160,31 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Post-login welcome curtain: hold, then fade, then unmount.
+  useEffect(() => {
+    if (!welcomeUser) return undefined;
+    const closeTimer = setTimeout(() => setWelcomeClosing(true), WELCOME_HOLD_MS);
+    const hideTimer = setTimeout(() => setWelcomeUser(null), WELCOME_HOLD_MS + WELCOME_FADE_MS);
+    return () => {
+      clearTimeout(closeTimer);
+      clearTimeout(hideTimer);
+    };
+  }, [welcomeUser]);
+
+  // Single-session enforcement (server/middleware/auth.js): this account
+  // signed in elsewhere, which ended the session running here. Bounce back
+  // to the login screen and explain why, rather than silently dumping the
+  // user out mid-task.
+  useEffect(() => {
+    ApiClient.onSessionReplaced((message) => {
+      setUser(null);
+      setWelcomeUser(null);
+      localStorage.removeItem(APP_VIEW_STORAGE_KEY);
+      setScreen('login');
+      setSessionEndedMessage(message);
+    });
+  }, []);
+
   useEffect(() => {
     if (booting || !splashElapsed) return undefined;
     setSplashClosing(true);
@@ -186,6 +225,7 @@ export default function App() {
 
   return (
     <>
+      <ExitAppButton />
       {!booting && (
         <AppContext.Provider value={ctxValue}>
           {screen === 'chooseMode' && <ChooseModeScreen />}
@@ -196,6 +236,18 @@ export default function App() {
         </AppContext.Provider>
       )}
       {showSplash && <SplashScreen closing={splashClosing} />}
+      {welcomeUser && <WelcomeEntranceScreen user={welcomeUser} closing={welcomeClosing} />}
+      <Modal
+        open={!!sessionEndedMessage}
+        title="Signed out"
+        okText="OK"
+        cancelButtonProps={{ style: { display: 'none' } }}
+        closable={false}
+        maskClosable={false}
+        onOk={() => setSessionEndedMessage('')}
+      >
+        {sessionEndedMessage}
+      </Modal>
     </>
   );
 }

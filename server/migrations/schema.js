@@ -40,6 +40,17 @@ const NEW_PROBATIONER_COLUMNS = [
   { name: 'photo_path', ddl: 'VARCHAR(500) NULL' },
 ];
 
+// Same rollforward pattern as NEW_PROBATIONER_COLUMNS above, for the users
+// table — single-session enforcement (see server/routes/auth.js and
+// server/middleware/auth.js): a login is only ever valid from the one
+// device recorded here, so signing in elsewhere can warn the user and, once
+// confirmed, boot the old session out.
+const NEW_USER_COLUMNS = [
+  { name: 'active_session_id', ddl: 'VARCHAR(64) NULL' },
+  { name: 'active_session_device', ddl: 'VARCHAR(150) NULL' },
+  { name: 'active_session_started_at', ddl: 'TIMESTAMP NULL' },
+];
+
 // Same rollforward pattern as NEW_PROBATIONER_COLUMNS above, for
 // attendance_log — CREATE TABLE IF NOT EXISTS below covers fresh installs,
 // this covers columns added after a database already exists.
@@ -79,6 +90,9 @@ function buildSchemaStatements() {
       full_name     VARCHAR(150) NOT NULL,
       role          ${sqlEnum(ROLES)} NOT NULL DEFAULT 'officer',
       is_active     TINYINT(1) NOT NULL DEFAULT 1,
+      active_session_id         VARCHAR(64) NULL,
+      active_session_device     VARCHAR(150) NULL,
+      active_session_started_at TIMESTAMP NULL,
       created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB`,
@@ -250,6 +264,7 @@ async function runMigration(pool) {
   }
   await addMissingColumns(pool, 'probationers', NEW_PROBATIONER_COLUMNS);
   await addMissingColumns(pool, 'attendance_log', NEW_ATTENDANCE_LOG_COLUMNS);
+  await addMissingColumns(pool, 'users', NEW_USER_COLUMNS);
 }
 
 module.exports = { buildSchemaStatements, runMigration };

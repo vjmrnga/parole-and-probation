@@ -42,6 +42,16 @@ function isLoggedIn() {
   return !!token;
 }
 
+// Fires when a 401 comes back tagged SESSION_REPLACED — i.e. this token was
+// invalidated because the account signed in somewhere else (see
+// server/middleware/auth.js). App.jsx registers a handler that bounces the
+// user back to the login screen with an explanation, instead of the generic
+// "please log in again" every other 401 gets.
+let sessionReplacedListener = null;
+function onSessionReplaced(fn) {
+  sessionReplacedListener = fn;
+}
+
 async function request(method, path, body) {
   const result = await window.api.apiRequest(method, path, body, token);
   if (result.status === 0) {
@@ -49,31 +59,61 @@ async function request(method, path, body) {
   }
   if (result.status === 401) {
     clearSession();
-    throw new Error((result.body && result.body.error) || 'Session expired — please log in again');
+    const message = (result.body && result.body.error) || 'Session expired — please log in again';
+    if (result.body && result.body.code === 'SESSION_REPLACED' && sessionReplacedListener) {
+      sessionReplacedListener(message);
+    }
+    throw new Error(message);
   }
   if (result.status >= 400) {
-    throw new Error((result.body && result.body.error) || `Request failed (${result.status})`);
+    const err = new Error((result.body && result.body.error) || `Request failed (${result.status})`);
+    if (result.body) {
+      err.code = result.body.code;
+      err.device = result.body.device;
+      err.since = result.body.since;
+    }
+    throw err;
   }
   return result.body;
 }
 
-async function login(username, password) {
-  const data = await request('POST', '/auth/login', { username, password });
+// deviceName lets the server tell "signing in again on this same laptop"
+// apart from "signing in on a different one" (see hasLiveConflictingSession
+// in server/routes/auth.js). force:true skips the conflict check entirely —
+// used when the user has confirmed the "sign out the other session?" modal.
+async function login(username, password, { force = false } = {}) {
+  const deviceName = await window.api.getDeviceName();
+  const data = await request('POST', '/auth/login', { username, password, deviceName, force });
   setSession(data.token, data.user);
   return data.user;
 }
 
 async function bootstrapAdmin(username, password, fullName) {
-  const data = await request('POST', '/auth/bootstrap-admin', { username, password, fullName });
+  const deviceName = await window.api.getDeviceName();
+  const data = await request('POST', '/auth/bootstrap-admin', { username, password, fullName, deviceName });
   setSession(data.token, data.user);
   return data.user;
+}
+
+// Tells the server to end this session (so it stops warning about a
+// conflict the next time someone logs in) before clearing local state.
+// Best-effort — an unreachable server shouldn't block logging out locally.
+async function logout() {
+  try {
+    if (token) await request('POST', '/auth/logout');
+  } catch (err) {
+    // already logged out locally regardless
+  } finally {
+    clearSession();
+  }
 }
 
 export const ApiClient = {
   request,
   login,
   bootstrapAdmin,
-  logout: clearSession,
+  logout,
+  onSessionReplaced,
   getUser,
   isLoggedIn,
   get: (path) => request('GET', path),

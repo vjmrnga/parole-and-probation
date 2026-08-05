@@ -105,12 +105,12 @@ function buildAttendanceEntryRouter(settingsStore, signaturesDir) {
       const [rows] = await db.getPool().query(
         `SELECT p.id AS probationer_id, p.full_name, p.docket_number,
                 p.assigned_officer_id, u.full_name AS assigned_officer_name,
-                a.log_date
+                a.id AS log_id, a.log_date
          FROM probationers p
          JOIN users u ON u.id = p.assigned_officer_id
          LEFT JOIN attendance_log a
            ON a.probationer_id = p.id AND a.log_date BETWEEN ? AND ?
-         ORDER BY p.full_name`,
+         ORDER BY p.full_name, a.log_date`,
         [monthStart, monthEnd]
       );
 
@@ -124,10 +124,16 @@ function buildAttendanceEntryRouter(settingsStore, signaturesDir) {
             assignedOfficerId: row.assigned_officer_id,
             assignedOfficerName: row.assigned_officer_name,
             reportedDates: [],
+            // Reporting is once a month, so there's normally at most one entry
+            // here — but if a re-report ever happens, the latest one (query is
+            // ordered by log_date) is what "the signature that was logged" means.
+            latestAttendanceEntryId: null,
           });
         }
         if (row.log_date) {
-          byProbationer.get(row.probationer_id).reportedDates.push(dayjs(row.log_date).format('YYYY-MM-DD'));
+          const entry = byProbationer.get(row.probationer_id);
+          entry.reportedDates.push(dayjs(row.log_date).format('YYYY-MM-DD'));
+          entry.latestAttendanceEntryId = row.log_id;
         }
       }
 
@@ -137,7 +143,8 @@ function buildAttendanceEntryRouter(settingsStore, signaturesDir) {
         if (p.reportedDates.length) status = 'present';
         else if (today <= graceEnd) status = 'pending';
         else status = 'absent';
-        return { ...p, status };
+        const { latestAttendanceEntryId, ...rest } = p;
+        return { ...rest, status, attendanceEntryId: latestAttendanceEntryId };
       });
 
       res.json({ month, graceEnd, probationers });

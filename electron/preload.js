@@ -7,7 +7,9 @@ contextBridge.exposeInMainWorld('api', {
   setSetting: (key, value) => ipcRenderer.invoke('set-setting', { key, value }),
   setMode: (mode) => ipcRenderer.invoke('set-mode', mode),
   chooseFolder: () => ipcRenderer.invoke('choose-folder'),
+  quitApp: () => ipcRenderer.invoke('quit-app'),
   getLanAddresses: () => ipcRenderer.invoke('get-lan-addresses'),
+  getDeviceName: () => ipcRenderer.invoke('get-device-name'),
 
   // Head Office setup
   mysqlTestConnection: (config) => ipcRenderer.invoke('mysql-test-connection', config),
@@ -24,6 +26,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Reports
   exportReport: (rows) => ipcRenderer.invoke('export-report', rows),
+  attendanceOverviewExportExcel: (payload) => ipcRenderer.invoke('attendance-overview-export-excel', payload),
 
   // PSIR
   psirSaveFile: (base64, defaultName) => ipcRenderer.invoke('psir-save-file', { base64, defaultName }),

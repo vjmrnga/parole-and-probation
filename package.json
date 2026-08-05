@@ -1,6 +1,6 @@
 {
   "name": "parole-probation-case-manager",
-  "version": "0.1.2",
+  "version": "0.1.6",
   "private": true,
   "description": "Centralized probation case management system (Head Office / Branch Office Electron app).",
   "main": "electron/main.js",
@@ -48,7 +48,8 @@
     "publish": {
       "provider": "github",
       "owner": "vjmrnga",
-      "repo": "parole-and-probation"
+      "repo": "parole-and-probation",
+      "releaseType": "release"
     },
     "files": [
       "electron/**/*",

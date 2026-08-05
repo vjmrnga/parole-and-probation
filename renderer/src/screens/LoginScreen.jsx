@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Alert, Button, Card, Form, Input } from 'antd';
+import { Alert, Button, Card, Form, Input, Modal } from 'antd';
+import { ExclamationCircleOutlined } from '@ant-design/icons';
 import BrandHeader from '../components/BrandHeader.jsx';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
@@ -8,18 +9,44 @@ export default function LoginScreen() {
   const { enterApp, setScreen } = useApp();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Held only long enough to retry the login with force:true if the user
+  // confirms the "sign out the other session?" modal below — never stored
+  // anywhere more durable than this component's state.
+  const [pendingCredentials, setPendingCredentials] = useState(null);
+  const [conflict, setConflict] = useState(null); // { device, since } from a 409 ALREADY_LOGGED_IN
 
-  async function onFinish(values) {
+  async function attemptLogin(username, password, { force = false } = {}) {
     setError('');
     setLoading(true);
     try {
-      const user = await ApiClient.login(values.username.trim(), values.password);
+      const user = await ApiClient.login(username, password, { force });
+      setConflict(null);
+      setPendingCredentials(null);
       enterApp(user);
     } catch (err) {
-      setError(err.message);
+      if (err.code === 'ALREADY_LOGGED_IN') {
+        setPendingCredentials({ username, password });
+        setConflict({ device: err.device, since: err.since });
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
+  }
+
+  function onFinish(values) {
+    attemptLogin(values.username.trim(), values.password);
+  }
+
+  function confirmForceLogin() {
+    if (!pendingCredentials) return;
+    attemptLogin(pendingCredentials.username, pendingCredentials.password, { force: true });
+  }
+
+  function cancelConflict() {
+    setConflict(null);
+    setPendingCredentials(null);
   }
 
   return (
@@ -40,6 +67,29 @@ export default function LoginScreen() {
           </Form.Item>
         </Form>
       </Card>
+
+      <Modal
+        open={!!conflict}
+        title={
+          <span>
+            <ExclamationCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />
+            Already signed in elsewhere
+          </span>
+        }
+        okText="Log Out Other Session & Sign In"
+        cancelText="Cancel"
+        okButtonProps={{ danger: true, loading }}
+        onOk={confirmForceLogin}
+        onCancel={cancelConflict}
+      >
+        <p>
+          This account is currently signed in on <strong>{conflict?.device || 'another device'}</strong>.
+        </p>
+        <p>
+          Continuing here will immediately sign that session out, so anyone still using it there will be
+          returned to the login screen mid-task. Only continue if you're sure that's what should happen.
+        </p>
+      </Modal>
     </div>
   );
 }
