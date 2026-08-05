@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
@@ -125,6 +126,41 @@ async function initForCurrentMode() {
   }
 }
 
+// ---- Auto-update (electron-updater, publishing to GitHub Releases — see
+// package.json's build.publish and the "dist" script) ----
+function setupAutoUpdater() {
+  if (!app.isPackaged) return; // no app-update.yml in dev; nothing to check against
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('error', (err) => {
+    console.error('Auto-update error:', err);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    dialog
+      .showMessageBox(mainWindow, {
+        type: 'info',
+        buttons: ['Restart now', 'Later'],
+        defaultId: 0,
+        title: 'Update ready',
+        message: `Version ${info.version} has been downloaded.`,
+        detail: 'Restart the app to apply the update. It will also be applied automatically the next time the app quits.',
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          app.isQuittingForReal = true;
+          autoUpdater.quitAndInstall();
+        }
+      });
+  });
+
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error('Failed to check for updates:', err);
+  });
+}
+
 function applyAutoLaunchSetting() {
   if (process.platform !== 'win32') return;
   const enabled = settingsStore.get('autoLaunchEnabled');
@@ -176,6 +212,7 @@ if (!gotLock) {
 
     createWindow();
     await initForCurrentMode();
+    setupAutoUpdater();
 
     if (wacomPad) wacomPad.init(mainWindow);
 

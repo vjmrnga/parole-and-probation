@@ -12,7 +12,8 @@
     "build:renderer": "vite build",
     "start": "npm run build:renderer && node scripts/run-electron.js",
     "start:hidden": "npm run build:renderer && node scripts/run-electron.js --hidden",
-    "dist": "npm run build:renderer && electron-builder"
+    "predist": "npm version patch --no-git-tag-version",
+    "dist": "npm run build:renderer && electron-builder --publish always"
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
@@ -21,6 +22,7 @@
     "cors": "^2.8.5",
     "dayjs": "^1.11.21",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.9",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
@@ -43,7 +45,11 @@
   "build": {
     "appId": "com.vjmrnga.paroleandprobation",
     "productName": "Parole and Probation Case Manager",
-    "publish": null,
+    "publish": {
+      "provider": "github",
+      "owner": "vjmrnga",
+      "repo": "parole-and-probation"
+    },
     "files": [
       "electron/**/*",
       "server/**/*",
