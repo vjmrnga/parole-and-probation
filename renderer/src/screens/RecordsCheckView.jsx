@@ -91,6 +91,7 @@ function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefre
         const lock = lockStatus(row, userId);
         const mine = editor.isEditing(row.id) || (lock.locked && lock.byMe);
         const lockedByOther = lock.locked && !lock.byMe;
+        const canDelete = isAdmin || row.generated_by === userId;
         return (
           <Space wrap>
             <Button size="small" loading={busyId === row.id} onClick={() => onOpen(row.id)}>Open (read-only)</Button>
@@ -111,7 +112,7 @@ function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefre
                 <Button size="small" danger>Force unlock</Button>
               </Popconfirm>
             )}
-            {isAdmin && (
+            {canDelete && (
               <Popconfirm title="Delete this file?" onConfirm={() => onDelete(row.id)}>
                 <Button size="small" danger>Delete</Button>
               </Popconfirm>

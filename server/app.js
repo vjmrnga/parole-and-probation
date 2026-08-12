@@ -11,6 +11,8 @@ const buildPsirRouter = require('./routes/psir');
 const buildRecordsCheckRouter = require('./routes/recordsCheck');
 const buildFileReportsRouter = require('./routes/fileReports');
 const buildDocumentsRouter = require('./routes/documents');
+const { authenticate } = require('./middleware/auth');
+const { sseHandler } = require('./events');
 
 // signaturesDir/photosDir/psirDir/recordsCheckDir/fileReportsDir/documentsDir:
 // absolute paths where signature PNGs / reference photos / generated PSIR
@@ -26,6 +28,9 @@ function createApp(settingsStore, signaturesDir, photosDir, psirDir, recordsChec
   app.use(express.json({ limit: '40mb' })); // signature PNGs, photos, generated PSIR/Final Report .docx, Records Check PDF batches, and scanned document attachments travel as base64 JSON
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  // Real-time push channel (Server-Sent Events, see server/events.js). Auth'd
+  // like every other route; write routes call broadcast() to notify clients.
+  app.get('/api/events', authenticate(settingsStore), sseHandler);
   app.use('/api/auth', buildAuthRouter(settingsStore));
   app.use('/api/users', buildUsersRouter(settingsStore));
   app.use('/api/probationers', buildProbationersRouter(settingsStore, signaturesDir, photosDir));

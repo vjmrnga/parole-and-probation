@@ -368,6 +368,24 @@ async function migrateUserFullNameToParts(pool) {
   await pool.query('ALTER TABLE users DROP COLUMN full_name');
 }
 
+// Widen the users.role ENUM to match shared/statusEnums.js's ROLES. Fresh
+// installs get the full set from CREATE TABLE above, but a database created
+// before a role was added still has the old ENUM definition, which would
+// reject inserts/updates using the new value. Idempotent — re-running with an
+// already-current column is a harmless no-op MODIFY.
+async function migrateUserRoleEnum(pool) {
+  const [cols] = await pool.query(
+    `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'`
+  );
+  if (cols.length === 0) return; // fresh install handles this in CREATE TABLE
+  const desired = sqlEnum(ROLES).toLowerCase();
+  if (cols[0].COLUMN_TYPE.toLowerCase() === desired) return; // already current
+  await pool.query(
+    `ALTER TABLE users MODIFY COLUMN role ${sqlEnum(ROLES)} NOT NULL DEFAULT 'officer'`
+  );
+}
+
 async function runMigration(pool) {
   const statements = buildSchemaStatements();
   for (const sql of statements) {
@@ -376,6 +394,7 @@ async function runMigration(pool) {
   await addMissingColumns(pool, 'probationers', NEW_PROBATIONER_COLUMNS);
   await addMissingColumns(pool, 'attendance_log', NEW_ATTENDANCE_LOG_COLUMNS);
   await addMissingColumns(pool, 'users', NEW_USER_COLUMNS);
+  await migrateUserRoleEnum(pool);
   // Edit-in-place lock columns, added to every file-bearing table that
   // existed before the check-out feature (see NEW_LOCK_COLUMNS).
   for (const table of ['psir_reports', 'file_reports', 'records_check_files', 'document_checklist']) {

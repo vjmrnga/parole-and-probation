@@ -312,7 +312,9 @@
     for (var k = 0; k < FIELDS.length; k++) {
       var r = L.data + k;
       text(FIELDS[k][0], COL.B, r, 12, 'normal', 'left', COL.E - COL.B - 1);
-      text(fmtCell(rec ? rec[FIELDS[k][1]] : ''), COL.E, r, 10, 'bold', 'left', vMax);
+      var val = fmtCell(rec ? rec[FIELDS[k][1]] : '');
+      if (val === '') val = 'No Data';                // never leave a data line blank
+      text(val, COL.E, r, 10, 'bold', 'left', vMax);
       line(COL.E, RIGHT, r);
     }
 

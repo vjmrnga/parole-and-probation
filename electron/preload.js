@@ -24,6 +24,17 @@ contextBridge.exposeInMainWorld('api', {
   // API calls (always proxied through main — see electron/apiProxy.js)
   apiRequest: (method, path, body, token) => ipcRenderer.invoke('api-request', { method, path, body, token }),
 
+  // Real-time server push (Server-Sent Events, proxied through main — see
+  // electron/eventStream.js). subscribe after login with the auth token;
+  // onServerEvent registers a listener and returns an unsubscribe function.
+  subscribeServerEvents: (token) => ipcRenderer.invoke('events-subscribe', { token }),
+  unsubscribeServerEvents: () => ipcRenderer.invoke('events-unsubscribe'),
+  onServerEvent: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('server-event', listener);
+    return () => ipcRenderer.removeListener('server-event', listener);
+  },
+
   // Reports
   exportReport: (rows) => ipcRenderer.invoke('export-report', rows),
   attendanceOverviewExportExcel: (payload) => ipcRenderer.invoke('attendance-overview-export-excel', payload),

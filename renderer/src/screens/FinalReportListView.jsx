@@ -163,6 +163,7 @@ export default function FinalReportListView() {
               const lock = lockStatus(row, user?.id);
               const mine = editor.isEditing(row.id) || (lock.locked && lock.byMe);
               const lockedByOther = lock.locked && !lock.byMe;
+              const canDelete = isAdmin || row.generated_by === user?.id;
               return (
                 <Space wrap>
                   <Button size="small" loading={busyId === row.id} onClick={() => openFile(row.id)}>Open (read-only)</Button>
@@ -183,7 +184,7 @@ export default function FinalReportListView() {
                       <Button size="small" danger>Force unlock</Button>
                     </Popconfirm>
                   )}
-                  {isAdmin && (
+                  {canDelete && (
                     <Popconfirm title="Delete this Final Report?" onConfirm={() => remove(row.id)}>
                       <Button size="small" danger>Delete</Button>
                     </Popconfirm>

@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
 const { lockSelectSql } = require('./lockHelpers');
 const { mountEditRoutes } = require('./editableDoc');
@@ -28,7 +28,7 @@ function buildFileReportsRouter(settingsStore, fileReportsDir) {
       }
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const [rows] = await db.getPool().query(
-        `SELECT r.id, r.probationer_id, r.filename, r.generated_at,
+        `SELECT r.id, r.probationer_id, r.filename, r.generated_at, r.generated_by,
                 ${probationerNameSql('p')} AS probationer_name, p.docket_number,
                 ${userNameSql('u')} AS generated_by_name,
                 ${lockSelectSql('r', 'lu')}
@@ -56,11 +56,16 @@ function buildFileReportsRouter(settingsStore, fileReportsDir) {
     }
   });
 
-  router.delete('/:id', requireRole('admin'), async (req, res, next) => {
+  // Admins can delete any report; other officers may delete only Final Reports
+  // they generated themselves (checked against generated_by, not role).
+  router.delete('/:id', async (req, res, next) => {
     try {
       const [rows] = await db.getPool().query('SELECT * FROM file_reports WHERE id = ?', [req.params.id]);
       const report = rows[0];
       if (!report) return res.status(404).json({ error: 'Not found' });
+      if (req.user.role !== 'admin' && report.generated_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only delete Final Reports you generated' });
+      }
       await db.getPool().query('DELETE FROM file_reports WHERE id = ?', [req.params.id]);
       if (fs.existsSync(report.file_path)) fs.unlinkSync(report.file_path);
       res.json({ ok: true });

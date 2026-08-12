@@ -4,6 +4,7 @@ import {
   Button, Card, ConfigProvider, Input, message, Modal, Popconfirm, Select, Table, Tabs, Typography,
 } from 'antd';
 import { ApiClient } from '../api/apiClient.js';
+import { useServerEvents } from '../hooks/useServerEvents.js';
 import SignatureCapture from '../components/SignatureCapture.jsx';
 import PhotoCapture from '../components/PhotoCapture.jsx';
 import AttendanceOverviewTable from '../components/AttendanceOverviewTable.jsx';
@@ -46,6 +47,18 @@ export default function SignatureAttendanceView() {
     load(targetId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetId]);
+
+  // Live update: refresh the probationer picker when cases change elsewhere,
+  // and reload the selected probationer's attendance/signature/photo when a
+  // new visit is logged (e.g. by another officer on another machine).
+  useServerEvents((events) => {
+    if (events.some((e) => e.resource === 'probationers')) {
+      ApiClient.get('/probationers').then(setProbationers).catch(() => {});
+    }
+    if (targetId && events.some((e) => e.resource === 'attendance')) {
+      load(targetId);
+    }
+  });
 
   async function load(id) {
     const rows = await ApiClient.get(`/probationers/${id}/attendance`);

@@ -5,6 +5,7 @@ const db = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { STAGES, STATUSES } = require('../../shared/statusEnums');
 const { splitName, userNameSql } = require('../../shared/nameUtils');
+const { broadcast } = require('../events');
 
 // Resolves the incoming name into first/middle/last parts. The interactive
 // forms send explicit firstName/middleName/lastName; imports and legacy callers
@@ -127,6 +128,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
         ]
       );
       const probationer = await loadProbationer(result.insertId);
+      broadcast({ resource: 'probationers', action: 'created', id: probationer.id });
       res.status(201).json(probationer);
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Docket number already exists' });
@@ -179,6 +181,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
 
       values.push(req.params.id);
       await db.getPool().query(`UPDATE probationers SET ${fields.join(', ')} WHERE id = ?`, values);
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json(await loadProbationer(req.params.id));
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Docket number already exists' });
@@ -210,6 +213,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
       } finally {
         conn.release();
       }
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json(await loadProbationer(req.params.id));
     } catch (err) {
       next(err);
@@ -240,6 +244,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
       } finally {
         conn.release();
       }
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json(await loadProbationer(req.params.id));
     } catch (err) {
       next(err);
@@ -272,6 +277,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
       } finally {
         conn.release();
       }
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json(await loadProbationer(req.params.id));
     } catch (err) {
       next(err);
@@ -284,6 +290,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
       if (!probationer) return res.status(404).json({ error: 'Not found' });
 
       await db.getPool().query('DELETE FROM probationers WHERE id = ?', [req.params.id]);
+      broadcast({ resource: 'probationers', action: 'deleted', id: Number(req.params.id) });
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -305,6 +312,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
       fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
 
       await db.getPool().query('UPDATE probationers SET signature_path = ? WHERE id = ?', [filePath, req.params.id]);
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -355,6 +363,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
 
       fs.writeFileSync(filePath, Buffer.from(match[2], 'base64'));
       await db.getPool().query('UPDATE probationers SET photo_path = ? WHERE id = ?', [filePath, req.params.id]);
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -389,6 +398,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
         fs.unlinkSync(probationer.photo_path);
       }
       await db.getPool().query('UPDATE probationers SET photo_path = NULL WHERE id = ?', [req.params.id]);
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json({ ok: true });
     } catch (err) {
       next(err);
@@ -415,6 +425,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
         sentences: patch.sentences !== undefined ? patch.sentences : current.sentences,
       };
       await db.getPool().query('UPDATE probationers SET psir_profile = ? WHERE id = ?', [JSON.stringify(merged), req.params.id]);
+      broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });
       res.json(await loadProbationer(req.params.id));
     } catch (err) {
       next(err);

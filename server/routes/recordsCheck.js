@@ -2,7 +2,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
-const { authenticate, requireRole } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
 const { lockSelectSql } = require('./lockHelpers');
 const { mountEditRoutes } = require('./editableDoc');
@@ -21,7 +21,7 @@ function buildRecordsCheckRouter(settingsStore, recordsCheckDir) {
   router.get('/', async (_req, res, next) => {
     try {
       const [rows] = await db.getPool().query(
-        `SELECT r.id, r.probationer_id, r.recipient, r.date_folder, r.filename, r.generated_at,
+        `SELECT r.id, r.probationer_id, r.recipient, r.date_folder, r.filename, r.generated_at, r.generated_by,
                 ${probationerNameSql('p')} AS probationer_name, p.docket_number,
                 ${userNameSql('u')} AS generated_by_name,
                 ${lockSelectSql('r', 'lu')}
@@ -48,11 +48,16 @@ function buildRecordsCheckRouter(settingsStore, recordsCheckDir) {
     }
   });
 
-  router.delete('/:id', requireRole('admin'), async (req, res, next) => {
+  // Admins can delete any file; other officers may delete only records-check
+  // PDFs they generated themselves (checked against generated_by, not role).
+  router.delete('/:id', async (req, res, next) => {
     try {
       const [rows] = await db.getPool().query('SELECT * FROM records_check_files WHERE id = ?', [req.params.id]);
       const file = rows[0];
       if (!file) return res.status(404).json({ error: 'Not found' });
+      if (req.user.role !== 'admin' && file.generated_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only delete files you generated' });
+      }
       await db.getPool().query('DELETE FROM records_check_files WHERE id = ?', [req.params.id]);
       if (fs.existsSync(file.file_path)) fs.unlinkSync(file.file_path);
       res.json({ ok: true });

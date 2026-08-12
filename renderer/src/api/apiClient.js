@@ -38,6 +38,12 @@ function getUser() {
   return currentUser;
 }
 
+// Exposed so App.jsx can hand the token to the real-time event stream
+// (see renderer/src/api/serverEvents.js) once the user is authenticated.
+function getToken() {
+  return token;
+}
+
 function isLoggedIn() {
   return !!token;
 }
@@ -122,6 +128,7 @@ export const ApiClient = {
   logout,
   onSessionReplaced,
   getUser,
+  getToken,
   isLoggedIn,
   get: (path) => request('GET', path),
   post: (path, body) => request('POST', path, body),

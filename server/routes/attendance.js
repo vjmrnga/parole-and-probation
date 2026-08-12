@@ -6,6 +6,7 @@ const db = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { firstWeekGraceEnd } = require('../../shared/attendanceGracePeriod');
 const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
+const { broadcast } = require('../events');
 
 async function loadProbationer(id) {
   const [rows] = await db.getPool().query('SELECT * FROM probationers WHERE id = ?', [id]);
@@ -67,6 +68,7 @@ function buildAttendanceRouter(settingsStore, signaturesDir) {
       fs.writeFileSync(filePath, Buffer.from(data, 'base64'));
       await db.getPool().query('UPDATE attendance_log SET signature_path = ? WHERE id = ?', [filePath, result.insertId]);
 
+      broadcast({ resource: 'attendance', action: 'created', probationerId: Number(req.params.id), id: result.insertId });
       res.status(201).json({
         id: result.insertId,
         probationer_id: req.params.id,
@@ -196,6 +198,7 @@ function buildAttendanceEntryRouter(settingsStore, signaturesDir) {
           req.params.entryId,
         ]);
       }
+      broadcast({ resource: 'attendance', action: 'updated', probationerId: Number(entry.probationer_id), id: Number(req.params.entryId) });
       res.json({ ok: true });
     } catch (err) {
       next(err);

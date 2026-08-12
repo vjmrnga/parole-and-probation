@@ -129,7 +129,7 @@ function buildPsirRouter(settingsStore, psirDir) {
       }
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const [rows] = await db.getPool().query(
-        `SELECT r.id, r.probationer_id, r.recommendation_type, r.filename, r.generated_at,
+        `SELECT r.id, r.probationer_id, r.recommendation_type, r.filename, r.generated_at, r.generated_by,
                 ${probationerNameSql('p')} AS probationer_name, p.docket_number,
                 ${userNameSql('u')} AS generated_by_name,
                 ${lockSelectSql('r', 'lu')}
@@ -157,11 +157,16 @@ function buildPsirRouter(settingsStore, psirDir) {
     }
   });
 
-  router.delete('/:id', requireRole('admin'), async (req, res, next) => {
+  // Admins can delete any report; other officers may delete only PSIRs they
+  // generated themselves (checked against generated_by, not enforced by role).
+  router.delete('/:id', async (req, res, next) => {
     try {
       const [rows] = await db.getPool().query('SELECT * FROM psir_reports WHERE id = ?', [req.params.id]);
       const report = rows[0];
       if (!report) return res.status(404).json({ error: 'Not found' });
+      if (req.user.role !== 'admin' && report.generated_by !== req.user.id) {
+        return res.status(403).json({ error: 'You can only delete PSIRs you generated' });
+      }
       await db.getPool().query('DELETE FROM psir_reports WHERE id = ?', [req.params.id]);
       if (fs.existsSync(report.file_path)) fs.unlinkSync(report.file_path);
       res.json({ ok: true });

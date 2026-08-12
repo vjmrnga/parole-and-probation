@@ -11,7 +11,7 @@ const STATUSES = [
   'Incomplete Attendance',
 ];
 
-const ROLES = ['officer', 'admin'];
+const ROLES = ['officer', 'admin', 'staff'];
 
 // Job/rank titles a user account can carry (shown next to the name in Manage
 // Users; stored on users.title). Fixed vocab like the others here — adding one

@@ -127,6 +127,7 @@ export default function CaseDetailView() {
       fatherName: f.fatherName || '',
       spouse: f.spouse || '',
       features: f.features || '',
+      placeOfBirth: f.placeOfBirth || '',
       permanentAddress: f.permanentAddress || '',
       custodialStatus: radios.custodial || 'Bail',
       detFacility: f.detFacility || '',
@@ -231,6 +232,7 @@ export default function CaseDetailView() {
         fatherName: (values.fatherName || '').trim(),
         spouse: (values.spouse || '').trim(),
         features: (values.features || '').trim(),
+        placeOfBirth: (values.placeOfBirth || '').trim(),
         permanentAddress: (values.permanentAddress || '').trim(),
         detFacility: (values.detFacility || '').trim(),
         rorCustodian: (values.rorCustodian || '').trim(),
@@ -380,6 +382,9 @@ export default function CaseDetailView() {
               <Form.Item label="Age" name="age" tooltip="Auto-computed from birthdate">
                 <InputNumber style={{ width: '100%' }} disabled />
               </Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Place of Birth" name="placeOfBirth"><Input /></Form.Item>
             </Col>
             <Col xs={24} sm={12} md={8}>
               <Form.Item label="Sex" name="sex">

@@ -7,6 +7,7 @@ const fs = require('fs');
 const settingsStore = require('./settingsStore');
 const tray = require('./tray');
 const { apiRequest } = require('./apiProxy');
+const { startEventStream } = require('./eventStream');
 const { fetchRemoteFingerprint, parseHostPort } = require('./certPinning');
 const certGen = require('../server/tls/certGen');
 const db = require('../server/db');
@@ -43,6 +44,7 @@ const devServerUrl = process.env.ELECTRON_START_URL;
 
 let mainWindow = null;
 let httpsServer = null;
+let stopEventStream = null; // teardown for the active SSE connection (see electron/eventStream.js)
 
 function signaturesDir() {
   return path.join(app.getPath('userData'), 'signatures');
@@ -214,11 +216,16 @@ if (!gotLock) {
         callback({
           responseHeaders: {
             ...details.responseHeaders,
-            // frame-src/object-src allow blob: — the Records Check generator
-            // (renderer/public/records-check-generator) previews and prints
-            // its jsPDF output via blob: URLs loaded into iframes.
+            // blob: is allowed across the fetch directives the Records Check
+            // generator (renderer/public/records-check-generator) needs to
+            // preview and print its jsPDF output: frame-src/object-src let the
+            // preview iframe navigate to the blob PDF, but Chromium's embedded
+            // PDF viewer then loads the actual bytes through a child/fetch
+            // context that falls back to default-src — so without blob: there
+            // the viewer chrome shows but the pages come up blank. script-src
+            // stays 'self' only so scripts remain locked down.
             'Content-Security-Policy': [
-              "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src 'self' blob:; object-src 'self' blob:;",
+              "default-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; object-src 'self' blob:;",
             ],
           },
         });
@@ -250,6 +257,7 @@ if (!gotLock) {
   app.on('before-quit', () => {
     app.isQuittingForReal = true;
     docEditWatcher.stopAll();
+    if (stopEventStream) stopEventStream();
     stopHeadOfficeServer();
   });
 
@@ -356,6 +364,39 @@ if (!gotLock) {
     } catch (err) {
       return { status: 0, body: { error: err.message } };
     }
+  });
+
+  // ---- IPC: real-time server events (SSE) ----
+  // The renderer calls this after login with its auth token; main holds the
+  // one streaming connection to /api/events and relays each event to the
+  // renderer via 'server-event' (see electron/eventStream.js and
+  // renderer/src/api/serverEvents.js). Re-subscribing tears down any prior
+  // stream first so a re-login swaps in the new token cleanly.
+  function stopEvents() {
+    if (stopEventStream) {
+      stopEventStream();
+      stopEventStream = null;
+    }
+  }
+
+  ipcMain.handle('events-subscribe', (_e, { token }) => {
+    stopEvents();
+    stopEventStream = startEventStream({
+      token,
+      settingsStore,
+      userDataPath: app.getPath('userData'),
+      onEvent: (event) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('server-event', event);
+        }
+      },
+    });
+    return { ok: true };
+  });
+
+  ipcMain.handle('events-unsubscribe', () => {
+    stopEvents();
+    return { ok: true };
   });
 
   // ---- IPC: reports ----

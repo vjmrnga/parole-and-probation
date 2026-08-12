@@ -3,6 +3,7 @@ import { Alert, Button, Col, DatePicker, Divider, Form, Input, InputNumber, mess
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ApiClient } from '../api/apiClient.js';
+import { useServerEvents } from '../hooks/useServerEvents.js';
 import { useApp } from '../AppContext.jsx';
 import ImportCasesModal from '../components/ImportCasesModal.jsx';
 import ImportActiveSupervisionModal from '../components/ImportActiveSupervisionModal.jsx';
@@ -49,6 +50,12 @@ export default function DashboardView() {
   // Debounced so typing fires a search automatically without needing
   // Enter/the search icon, but doesn't send a request per keystroke.
   useEffect(() => () => clearTimeout(searchTimeoutRef.current), []);
+
+  // Live update: reload when a probationer is created/updated/deleted on any
+  // machine (including a bulk import, which the hook coalesces into one refetch).
+  useServerEvents((events) => {
+    if (events.some((e) => e.resource === 'probationers')) loadDashboard();
+  });
 
   function handleSearchChange(value) {
     clearTimeout(searchTimeoutRef.current);
@@ -237,7 +244,9 @@ export default function DashboardView() {
       key: 'actions',
       render: (_, record) => (
         <Space onClick={(e) => e.stopPropagation()}>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEditCase(record)}>Edit</Button>
+          {(isAdmin || user?.id === record.assigned_officer_id) && (
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEditCase(record)}>Edit</Button>
+          )}
           {isAdmin && (
             <Popconfirm
               title={`Delete case for ${composeName(record)}?`}

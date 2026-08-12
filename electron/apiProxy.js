@@ -54,21 +54,19 @@ function headOfficeAgent(userDataPath) {
   return new https.Agent({ ca: fs.readFileSync(certPath, 'utf8') });
 }
 
-async function apiRequest({ method, path, body, token, settingsStore, userDataPath }) {
+// Where this instance's API traffic goes and how its TLS is trusted, by mode.
+// Shared by apiRequest (below) and the SSE event stream (electron/eventStream.js)
+// so both reach the same server with the same cert-trust rules. Throws when the
+// app isn't configured for a mode yet (or a Branch isn't paired).
+function resolveTarget({ settingsStore, userDataPath }) {
   const mode = settingsStore.get('mode');
-  const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   if (mode === 'head-office') {
-    const port = settingsStore.get('serverPort');
-    return requestJson({
+    return {
       hostname: '127.0.0.1',
-      port,
-      path: `/api${path}`,
-      method,
-      headers,
-      body,
+      port: settingsStore.get('serverPort'),
       agent: headOfficeAgent(userDataPath),
-    });
+    };
   }
 
   if (mode === 'branch-office') {
@@ -78,18 +76,16 @@ async function apiRequest({ method, path, body, token, settingsStore, userDataPa
       throw new Error('Branch Office is not paired with a Head Office yet — check Settings.');
     }
     const { hostname, port } = parseHostPort(headOfficeUrl);
-    return requestJson({
-      hostname,
-      port,
-      path: `/api${path}`,
-      method,
-      headers,
-      body,
-      agent: buildPinnedAgent(pinnedFingerprint),
-    });
+    return { hostname, port, agent: buildPinnedAgent(pinnedFingerprint) };
   }
 
   throw new Error('No mode configured yet');
 }
 
-module.exports = { apiRequest };
+async function apiRequest({ method, path, body, token, settingsStore, userDataPath }) {
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const { hostname, port, agent } = resolveTarget({ settingsStore, userDataPath });
+  return requestJson({ hostname, port, path: `/api${path}`, method, headers, body, agent });
+}
+
+module.exports = { apiRequest, resolveTarget };

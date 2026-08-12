@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Modal } from 'antd';
 import { ApiClient } from './api/apiClient.js';
+import { serverEvents } from './api/serverEvents.js';
 import { AppContext } from './AppContext.jsx';
 import ChooseModeScreen from './screens/ChooseModeScreen.jsx';
 import HeadOfficeSetupScreen from './screens/HeadOfficeSetupScreen.jsx';
@@ -164,6 +165,15 @@ export default function App() {
       localStorage.setItem(APP_VIEW_STORAGE_KEY, appView);
     }
   }, [screen, appView]);
+
+  // Open the real-time event stream while logged in (see
+  // renderer/src/api/serverEvents.js) so screens can auto-refresh when data
+  // changes on another machine; tear it down on logout / session end.
+  useEffect(() => {
+    if (!user) return undefined;
+    serverEvents.connect(ApiClient.getToken());
+    return () => serverEvents.disconnect();
+  }, [user]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSplashElapsed(true), SPLASH_MIN_MS);
