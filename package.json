@@ -1,6 +1,6 @@
 {
   "name": "parole-probation-case-manager",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "private": true,
   "description": "Centralized probation case management system (Head Office / Branch Office Electron app).",
   "main": "electron/main.js",

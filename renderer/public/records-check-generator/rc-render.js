@@ -127,6 +127,50 @@
   /* ======================================================================== */
   /*  PAGE RENDERER                                                           */
   /* ======================================================================== */
+
+  /* ---- Letterhead, shared by the request form and the transmittal -------- */
+  function drawLetterhead(doc, assets, X, Y, S, s, font) {
+    var CX = 103.1;                                // centre of the letterhead text
+    if (assets.logoPpa) doc.addImage(assets.logoPpa, 'PNG', X(11.5), Y(11.6), S(26.5), S(25.3));
+    if (assets.logoBp)  doc.addImage(assets.logoBp,  'PNG', X(167.5), Y(10.8), S(27.0), S(25.2));
+
+    doc.setTextColor(0, 0, 0);
+    font(11, 'normal', 'times');
+    doc.text('Republic of the Philippines', X(CX), Y(12.30), { align: 'center' });
+    font(11, 'bolditalic');
+    doc.text('Department of Justice', X(CX), Y(16.25), { align: 'center' });
+    doc.setTextColor(228, 0, 0);
+    font(11.5, 'bold');
+    doc.text('PAROLE AND PROBATION ADMINISTRATION', X(CX), Y(20.05), { align: 'center' });
+    doc.setTextColor(0, 0, 205);
+    font(11.5, 'bold');
+    doc.text('Regional Office No. VII', X(CX), Y(24.40), { align: 'center' });
+    font(11.5, 'bold');
+    doc.text('TALISAY CITY PAROLE AND PROBATION OFFICE', X(CX), Y(28.90), { align: 'center' });
+    doc.setTextColor(0, 0, 0);
+    font(9, 'normal');
+    doc.text('G/F Hall of Justice, Lawaan II, Talisay City, Cebu', X(CX), Y(32.95), { align: 'center' });
+
+    // Tel / e-mail line — the e-mail is a blue underlined link, as in the original.
+    font(9, 'normal');
+    var pre = 'Tel. No. 032-239-8358 | Email: ', mail = 'talisay.ppa7doj@gmail.com';
+    var wPre = doc.getTextWidth(pre), wMail = doc.getTextWidth(mail);
+    var lx = X(CX) - (wPre + wMail) / 2;
+    doc.text(pre, lx, Y(36.90));
+    doc.setTextColor(0, 0, 205);
+    doc.text(mail, lx + wPre, Y(36.90));
+    doc.setLineWidth(0.15 * s);
+    doc.setDrawColor(0, 0, 205);
+    doc.line(lx + wPre, Y(37.55), lx + wPre + wMail, Y(37.55));
+
+    var web = 'Website: https://probation.gov.ph';
+    var wWeb = doc.getTextWidth(web);
+    doc.text(web, X(CX), Y(40.85), { align: 'center' });
+    doc.line(X(CX) - wWeb / 2, Y(41.50), X(CX) + wWeb / 2, Y(41.50));
+    doc.setTextColor(0, 0, 0);
+    doc.setDrawColor(0);
+  }
+
   /**
    * @param doc     jsPDF instance, positioned on the page to draw
    * @param form    one entry from FORMS
@@ -225,45 +269,7 @@
     text('PPA-FO-FR-013', RIGHT, 1, 8.5, 'bolditalic', 'right');
 
     /* --- 2. letterhead --------------------------------------------------- */
-    var CX = 103.1;                                // centre of the letterhead text
-    if (assets.logoPpa) doc.addImage(assets.logoPpa, 'PNG', X(11.5), Y(11.6), S(26.5), S(25.3));
-    if (assets.logoBp)  doc.addImage(assets.logoBp,  'PNG', X(167.5), Y(10.8), S(27.0), S(25.2));
-
-    doc.setTextColor(0, 0, 0);
-    font(11, 'normal', 'times');
-    doc.text('Republic of the Philippines', X(CX), Y(12.30), { align: 'center' });
-    font(11, 'bolditalic');
-    doc.text('Department of Justice', X(CX), Y(16.25), { align: 'center' });
-    doc.setTextColor(228, 0, 0);
-    font(11.5, 'bold');
-    doc.text('PAROLE AND PROBATION ADMINISTRATION', X(CX), Y(20.05), { align: 'center' });
-    doc.setTextColor(0, 0, 205);
-    font(11.5, 'bold');
-    doc.text('Regional Office No. VII', X(CX), Y(24.40), { align: 'center' });
-    font(11.5, 'bold');
-    doc.text('TALISAY CITY PAROLE AND PROBATION OFFICE', X(CX), Y(28.90), { align: 'center' });
-    doc.setTextColor(0, 0, 0);
-    font(9, 'normal');
-    doc.text('G/F Hall of Justice, Lawaan II, Talisay City, Cebu', X(CX), Y(32.95), { align: 'center' });
-
-    // Tel / e-mail line — the e-mail is a blue underlined link, as in the original.
-    font(9, 'normal');
-    var pre = 'Tel. No. 032-239-8358 | Email: ', mail = 'talisay.ppa7doj@gmail.com';
-    var wPre = doc.getTextWidth(pre), wMail = doc.getTextWidth(mail);
-    var lx = X(CX) - (wPre + wMail) / 2;
-    doc.text(pre, lx, Y(36.90));
-    doc.setTextColor(0, 0, 205);
-    doc.text(mail, lx + wPre, Y(36.90));
-    doc.setLineWidth(0.15 * s);
-    doc.setDrawColor(0, 0, 205);
-    doc.line(lx + wPre, Y(37.55), lx + wPre + wMail, Y(37.55));
-
-    var web = 'Website: https://probation.gov.ph';
-    var wWeb = doc.getTextWidth(web);
-    doc.text(web, X(CX), Y(40.85), { align: 'center' });
-    doc.line(X(CX) - wWeb / 2, Y(41.50), X(CX) + wWeb / 2, Y(41.50));
-    doc.setTextColor(0, 0, 0);
-    doc.setDrawColor(0);
+    drawLetterhead(doc, assets, X, Y, S, s, font);
 
     /* --- 3. title -------------------------------------------------------- */
     underlineText('REQUEST FOR RECORDS CHECK', (COL.A + RIGHT) / 2, 8, 15, 'bold', 'center');
@@ -386,10 +392,175 @@
     line(COL.C, COL.F, L.approvedLine);
   }
 
+  /* ======================================================================== */
+  /*  RECORDS CHECK TRANSMITTAL                                               */
+  /*  The covering letter that goes with a batch of request forms. Same       */
+  /*  letterhead and signatories as the form; the body is the numbered list   */
+  /*  of everyone queued, laid out as in "Records Check Transmittal.xlsx".    */
+  /* ======================================================================== */
+
+  /* ---- The transmittal's own grid ---------------------------------------
+     Columns A..E of "Records Check Transmittal.xlsx", converted from the
+     workbook's column widths (9.14 / 39.71 / 9.14 / 39.71 / 9.14 characters)
+     into millimetres across the same print area the request form uses.     */
+  var TCOL = { A: 6.35, B: 22.15, C: 90.80, D: 106.60, E: 175.25 };
+
+  var TX = {
+    top: 6.35, height: 285,
+    title: 50,                      // A8 — bold, centred across A:D, no underline
+    step: 5.30,                     // the sheet's row height
+    perCol: 15                      // 15 names down the left column, then the right; 30 to a page
+  };
+  TX.perPage = TX.perCol * 2;
+
+  /** Split a name list into pages. Returns [{names, start, isLast}]. */
+  function transmittalPages(names) {
+    var out = [], n = names.length;
+    if (!n) return [{ names: [], start: 0, isLast: true }];
+    for (var i = 0; i < n; i += TX.perPage) {
+      out.push({ names: names.slice(i, i + TX.perPage), start: i, isLast: i + TX.perPage >= n });
+    }
+    return out;
+  }
+
+  /**
+   * @param doc    jsPDF instance, positioned on the page to draw
+   * @param form   one entry from FORMS (supplies the TO: block)
+   * @param page   one entry from transmittalPages()
+   * @param assets same asset bundle as renderForm
+   * @param opt    { date, chief, io, showSignatures, paper, to }
+   */
+  function renderTransmittal(doc, form, page, assets, opt) {
+    opt = opt || {};
+    var PW = opt.paper ? opt.paper.w : 210;
+    var PH = opt.paper ? opt.paper.h : 297;
+    var TOPM = 6.35, BOTM = 9.0, SIDEM = 6.35;
+
+    var contentW = RIGHT - COL.A;
+    var s = Math.min((PH - TOPM - BOTM) / (TX.height - TX.top), (PW - 2 * SIDEM) / contentW, 1);
+    var offX = (PW - contentW * s) / 2 - COL.A * s;
+    var offY = TOPM - TX.top * s;
+
+    var X = function (mm) { return offX + mm * s; };
+    var Y = function (mm) { return offY + mm * s; };
+    var S = function (mm) { return mm * s; };
+    var R = function (n) { return TX.title + n * TX.step; };   // sheet row, counting from the title
+
+    function font(size, style, family) {
+      doc.setFont(family || 'helvetica', style || 'normal');
+      doc.setFontSize(size * s);
+    }
+    function text(str, x, y, size, style, align, maxW) {
+      if (str === '' || str == null) return;
+      font(size, style);
+      var t = String(str);
+      if (maxW) {
+        var avail = S(maxW), sz = size * s;
+        while (doc.getTextWidth(t) > avail && sz > 5.5) { sz -= 0.25; doc.setFontSize(sz); }
+      }
+      doc.text(t, X(x), Y(y), { align: align || 'left', baseline: 'alphabetic' });
+    }
+    function rule(x1, x2, y) {                    // a cell's bottom border in the sheet
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.25 * s);
+      doc.line(X(x1), Y(y), X(x2), Y(y));
+    }
+
+    doc.setTextColor(0, 0, 0);
+    drawLetterhead(doc, assets, X, Y, S, s, font);
+
+    /* --- A8: title -------------------------------------------------------- */
+    text('RECORDS CHECK TRANSMITTAL', (TCOL.A + TCOL.E) / 2, R(0), 12, 'bold', 'center');
+
+    /* --- C10 / D10: date, centred over its bottom border ------------------ */
+    text('DATE:', (TCOL.C + TCOL.D) / 2, R(2), 12, 'bold', 'center');
+    text(fmtDate(opt.date || new Date()), (TCOL.D + TCOL.E) / 2, R(2), 12, 'normal', 'center', TCOL.E - TCOL.D - 2);
+    rule(TCOL.D, TCOL.E, R(2) + 1.3);
+
+    /* --- A12 / B12-B14: TO block, each line ruled under column B ---------- */
+    var to = opt.to || form.to;
+    text('TO:', (TCOL.A + TCOL.B) / 2, R(4), 12, 'bold', 'center');
+    for (var i = 0; i < 3; i++) {
+      text(to[i], TCOL.B, R(4 + i), 12, i === 0 ? 'bold' : 'normal', 'left', TCOL.C - TCOL.B - 1);
+      rule(TCOL.B, TCOL.C, R(4 + i) + 1.3);
+    }
+
+    /* --- salutation and body ---------------------------------------------- */
+    text("SIR/MA'AM:", TCOL.A, R(8), 12, 'bold');
+    text('Good day!', TCOL.A, R(10), 12, 'normal');
+    text('Respectfully requesting for Records Check on the following petitioners for probation, to wit:',
+         TCOL.A, R(12), 12, 'normal', 'left', RIGHT - TCOL.A);
+
+    /* --- the numbered list ------------------------------------------------
+       Numbers centred in A (and C), names left in B (and D), as the sheet
+       lays them out. Plain numerals — the workbook has no full stop.        */
+    var names = page.names || [];
+    var twoCol = names.length > TX.perCol;
+    var size = twoCol ? 11 : 12;
+    var first = 14;
+    var rows = 0;
+
+    for (var k = 0; k < names.length; k++) {
+      var col = (twoCol && k >= TX.perCol) ? 1 : 0;
+      var row = col ? k - TX.perCol : k;
+      var numX = col ? (TCOL.C + TCOL.D) / 2 : (TCOL.A + TCOL.B) / 2;
+      var nameX = col ? TCOL.D : TCOL.B;
+      var maxW = col ? TCOL.E - TCOL.D - 1
+                     : (twoCol ? TCOL.C - TCOL.B - 1 : TCOL.E - TCOL.B);
+      var y = R(first + row);
+      text(String(page.start + k + 1), numX, y, size, 'normal', 'center');
+      text(names[k], nameX, y, size, 'normal', 'left', maxW);
+      if (row + 1 > rows) rows = row + 1;
+    }
+
+    var lastRow = first + Math.max(rows, 1) - 1;
+
+    /* --- closing and signatories ------------------------------------------
+       Row spacing follows the sheet: the closing sits two rows under the last
+       name, the IO four rows below that, then Noted / Chief.                 */
+    if (!page.isLast) {
+      text('(continued on the next page)', (TCOL.A + TCOL.E) / 2, R(lastRow + 2), 11, 'italic', 'center');
+      return;
+    }
+
+    var rClose = lastRow + 2;
+    text('Hope you find the attachment in order. Thank you and God bless.',
+         TCOL.A, R(rClose), 12, 'normal', 'left', RIGHT - TCOL.A);
+
+    var ioName = opt.io || '';
+    var chief  = opt.chief || 'LYLE E. DACLAN';
+    var rIo    = rClose + 4;
+    var ioMid  = (TCOL.C + TCOL.E) / 2;
+
+    if (opt.showSignatures !== false && !form.noIoSig) {
+      var ioSig = sigForIO(ioName, assets);
+      if (ioSig) {
+        var iw = (ioSig === assets.sigHerbito) ? 20.8 : 36.3, ih = 21.0;
+        doc.addImage(ioSig, 'PNG', X(ioMid - iw / 2), Y(R(rIo) + 1.3 - ih), S(iw), S(ih));
+      }
+    }
+    text(ioName, ioMid, R(rIo), 12, 'bold', 'center', TCOL.E - TCOL.C - 2);
+    rule(TCOL.C, TCOL.E, R(rIo) + 1.3);
+    text('Investigating Officer-on-Case', ioMid, R(rIo + 1), 11, 'italic', 'center');
+
+    text('Noted:', TCOL.B, R(rIo + 2), 12, 'normal', 'right');
+
+    var rChief = rIo + 4;
+    var chMid = (TCOL.B + TCOL.C) / 2;
+    if (opt.showSignatures !== false && assets.sigDaclan) {
+      doc.addImage(assets.sigDaclan, 'PNG', X(chMid - 22.25), Y(R(rChief) + 1.3 - 38.0), S(44.5), S(38.0));
+    }
+    text(chief, chMid, R(rChief), 12, 'bold', 'center', TCOL.C - TCOL.B - 2);
+    rule(TCOL.B, TCOL.C, R(rChief) + 1.3);
+    text('Chief Probation and Parole Officer', TCOL.B, R(rChief + 1), 12, 'italic', 'left');
+  }
+
   var API = {
     FORMS: FORMS,
     FIELDS: FIELDS,
     renderForm: renderForm,
+    renderTransmittal: renderTransmittal,
+    transmittalPages: transmittalPages,
     fmtDate: fmtDate,
     fmtCell: fmtCell
   };

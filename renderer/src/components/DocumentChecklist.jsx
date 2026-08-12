@@ -159,7 +159,7 @@ export default function DocumentChecklist({ probationerId, isDetained, canEdit }
               const lockedByOther = lock.locked && !lock.byMe;
               return (
                 <Space wrap>
-                  {row.hasFile && (
+                  {!canEdit && row.hasFile && (
                     <Tooltip title="View (read-only)">
                       <Button size="small" icon={<EyeOutlined />} onClick={() => viewFile(row.key)} />
                     </Tooltip>
@@ -174,7 +174,7 @@ export default function DocumentChecklist({ probationerId, isDetained, canEdit }
                         <Tag icon={<LockOutlined />} color="orange" style={{ margin: 0 }}>In use</Tag>
                       </Tooltip>
                     ) : (
-                      <Tooltip title="Edit (changes save automatically)">
+                      <Tooltip title="Open (changes save automatically)">
                         <Button size="small" icon={<EditOutlined />} loading={editor.busyId === row.key} onClick={() => editor.startEdit(row.key)} />
                       </Tooltip>
                     )

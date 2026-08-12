@@ -75,18 +75,6 @@ export default function FinalReportListView() {
     }
   }
 
-  async function openFile(id) {
-    setBusyId(id);
-    try {
-      const { base64, filename } = await ApiClient.get(`/file-reports/${id}/download`);
-      await window.api.fileReportOpenFile(base64, filename);
-    } catch (err) {
-      message.error(err.message);
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function saveFileAs(id) {
     setBusyId(id);
     try {
@@ -166,7 +154,6 @@ export default function FinalReportListView() {
               const canDelete = isAdmin || row.generated_by === user?.id;
               return (
                 <Space wrap>
-                  <Button size="small" loading={busyId === row.id} onClick={() => openFile(row.id)}>Open (read-only)</Button>
                   {mine ? (
                     <Button size="small" type="primary" loading={editor.busyId === row.id} onClick={() => editor.stopEdit(row.id)}>
                       Done editing
@@ -176,7 +163,7 @@ export default function FinalReportListView() {
                       <Tag icon={<LockOutlined />} color="orange">In use{lock.name ? ` — ${lock.name}` : ''}</Tag>
                     </Tooltip>
                   ) : (
-                    <Button size="small" loading={editor.busyId === row.id} onClick={() => editor.startEdit(row.id)}>Edit</Button>
+                    <Button size="small" loading={editor.busyId === row.id} onClick={() => editor.startEdit(row.id)}>Open</Button>
                   )}
                   <Button size="small" loading={busyId === row.id} onClick={() => saveFileAs(row.id)}>Save a copy as…</Button>
                   {isAdmin && lockedByOther && (

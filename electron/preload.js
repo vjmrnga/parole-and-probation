@@ -84,4 +84,11 @@ contextBridge.exposeInMainWorld('api', {
     // Return an unsubscribe so a React effect can clean up on unmount.
     return () => ipcRenderer.removeListener('doc-edit-changed', listener);
   },
+  // Fires once when an edited document's editor is closed, so the renderer can
+  // auto-release the lock (see renderer/src/hooks/useDocEditor.js).
+  onDocEditClosed: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('doc-edit-closed', listener);
+    return () => ipcRenderer.removeListener('doc-edit-closed', listener);
+  },
 });

@@ -260,11 +260,11 @@
         <span class="lbl"><span class="n">02</span>Routing</span>
         <table>
           <thead>
-            <tr><th>Recipient</th><th>Save PDF</th><th>Print</th></tr>
+            <tr><th>Recipient</th><th>Transmittal</th><th>Save PDF</th><th>Print</th></tr>
           </thead>
           <tbody id="routing"></tbody>
           <tfoot>
-            <tr><td colspan="3">Print column is the number of copies. Set to 0 to skip.</td></tr>
+            <tr><td colspan="4">Transmittal is the covering letter listing every queued name. Print column is the number of copies. Set to 0 to skip.</td></tr>
           </tfoot>
         </table>
       </section>
@@ -300,13 +300,28 @@
             </select>
           </div>
         </div>
-        <p class="hint" style="margin-top:10px">Saved PDFs are stored automatically, sorted by recipient then date — see the app's Saved PDFs tab.</p>
+        <div class="grid2" style="margin-top:10px">
+          <div class="fld">
+            <label for="txIn">Transmittal</label>
+            <select id="txIn">
+              <option value="1" selected>Cover letter for each recipient</option>
+              <option value="0">No transmittal</option>
+            </select>
+          </div>
+          <div class="fld">
+            <label for="ioIn">Investigating officer on the transmittal</label>
+            <input id="ioIn" list="ioList" autocomplete="off" placeholder="Name as it should be signed">
+            <datalist id="ioList"></datalist>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:10px">Saved PDFs are stored automatically, sorted by recipient then date — see the app's Saved PDFs tab. Transmittal cover letters are for printing only.</p>
       </section>
     </div>
 
     <div class="actions">
       <button id="btnPdf" disabled>Save PDFs</button>
       <button id="btnPrint" disabled>Print</button>
+      <button id="btnTx" style="grid-column:1/-1" disabled>Print transmittal only</button>
       <button id="btnBoth" class="pri" disabled>Save PDFs and print</button>
     </div>
   </div>

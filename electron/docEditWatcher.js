@@ -24,7 +24,15 @@ const DEBOUNCE_MS = 900;
 const READ_RETRIES = 5;
 const READ_RETRY_MS = 250;
 
-// key -> { dir, filePath, filename, watcher, timer, lastHash, onChange, closed }
+// How often we probe whether the editor still has the document open, and how
+// many consecutive "free" probes we require before declaring it closed. The
+// confirm count guards against the brief window mid-save when Word deletes and
+// re-creates the file and it momentarily looks free.
+const CLOSE_POLL_MS = 2000;
+const CLOSE_CONFIRM_POLLS = 2;
+
+// key -> { dir, filePath, filename, watcher, timer, lastHash, onChange,
+//          onClosed, closeTimer, everSeenOpen, freeStreak, finalizing, closed }
 const sessions = new Map();
 
 function sha1(buf) {
@@ -66,10 +74,77 @@ async function handleChange(key) {
   session.onChange(buf.toString('base64'));
 }
 
+// Office apps (Word/Excel/PowerPoint) keep a hidden "~$<name>" owner file next
+// to an open document, and LibreOffice a ".~lock.<name>#"; both are deleted on
+// close. Because every session owns a private temp dir, any such sibling means
+// our document is still open.
+function hasOwnerLockFile(dir) {
+  try {
+    return fs.readdirSync(dir).some((n) => n.startsWith('~$') || n.startsWith('.~lock.'));
+  } catch (err) {
+    return false;
+  }
+}
+
+// True when the document still appears open in an external editor. Two signals:
+// an Office owner-lock sibling, or the file itself being unrenameable. A file a
+// process holds open (Acrobat, image editors, etc.) can't be renamed, so the
+// rename-and-rename-back probe fails while it's open and succeeds once free —
+// and since a held file can't be renamed in the first place, the momentary
+// rename-back can never collide with the editor's own save.
+function isDocumentOpen(session) {
+  if (hasOwnerLockFile(session.dir)) return true;
+  const probe = `${session.filePath}.pp-probe`;
+  try {
+    fs.renameSync(session.filePath, probe);
+    fs.renameSync(probe, session.filePath);
+    return false; // renamed freely -> nothing holds it open
+  } catch (err) {
+    // Recover if we renamed away but couldn't rename back (should be rare).
+    try {
+      if (fs.existsSync(probe) && !fs.existsSync(session.filePath)) {
+        fs.renameSync(probe, session.filePath);
+      }
+    } catch (recoverErr) {
+      // leave it; the next probe will retry
+    }
+    return true; // locked, busy, or mid-save -> treat as still open
+  }
+}
+
+// Periodic check behind auto-release: once we've actually observed the document
+// open (so a viewer that never locks the file can't trigger a false close right
+// after launch), a run of "free" probes means the user closed it. We grab any
+// last-moment save, then release the session and notify via onClosed.
+function checkClosed(key) {
+  const session = sessions.get(key);
+  if (!session || session.closed || session.finalizing) return;
+
+  if (isDocumentOpen(session)) {
+    session.everSeenOpen = true;
+    session.freeStreak = 0;
+    return;
+  }
+  if (!session.everSeenOpen) return; // never confirmed open — wait for the manual "Done"
+  session.freeStreak += 1;
+  if (session.freeStreak < CLOSE_CONFIRM_POLLS) return;
+
+  session.finalizing = true;
+  const onClosed = session.onClosed;
+  Promise.resolve(handleChange(key))
+    .catch(() => {})
+    .finally(async () => {
+      await stopEdit(key);
+      if (onClosed) onClosed();
+    });
+}
+
 // Opens `filename` (bytes given as base64) for editing under a private temp
 // dir keyed by `key`, and starts watching for saves. onChange(base64) fires
-// once per distinct save. Returns { ok, filePath } or { ok:false, error }.
-async function startEdit({ key, base64, filename }, onChange) {
+// once per distinct save; onClosed() fires once when the editor is closed, so
+// the caller can auto-release the document's lock without the user clicking
+// "Done". Returns { ok, filePath } or { ok:false, error }.
+async function startEdit({ key, base64, filename }, onChange, onClosed) {
   // Drop any previous session for this key before starting a fresh one.
   await stopEdit(key);
 
@@ -93,6 +168,11 @@ async function startEdit({ key, base64, filename }, onChange) {
     timer: null,
     lastHash: sha1(initial),
     onChange,
+    onClosed,
+    closeTimer: null,
+    everSeenOpen: false,
+    freeStreak: 0,
+    finalizing: false,
     closed: false,
   };
   sessions.set(key, session);
@@ -114,6 +194,10 @@ async function startEdit({ key, base64, filename }, onChange) {
     await stopEdit(key);
     return { ok: false, error: openErr };
   }
+
+  // Start polling for close only after the editor has had a chance to launch
+  // and take its lock, so the first probe doesn't race the open.
+  session.closeTimer = setInterval(() => checkClosed(key), CLOSE_POLL_MS);
   return { ok: true, filePath };
 }
 
@@ -123,6 +207,7 @@ async function stopEdit(key) {
   if (!session) return { ok: true };
   session.closed = true;
   if (session.timer) clearTimeout(session.timer);
+  if (session.closeTimer) clearInterval(session.closeTimer);
   if (session.watcher) {
     try { session.watcher.close(); } catch (err) { /* already closed */ }
   }

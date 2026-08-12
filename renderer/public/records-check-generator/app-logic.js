@@ -10,23 +10,24 @@
   // (see "rc:setMasterlist" below) instead of an uploaded workbook.
   var ml = null;
   var queue = [];                // array of ids, in order
-  var route = {};                // formId -> { pdf:bool, copies:int }
+  var route = {};                // formId -> { pdf:bool, copies:int, tx:bool }
   var previewURL = null, printURL = null;
   var pvDirty = true;
 
   // Defaults, straight from the office's standing instruction:
   //   NBI + PNP Talisay -> PDF.   RTC x1, MTCC x2, City Prosecutor x1 -> print.
+  //   tx = send that recipient a covering transmittal letter.
   var DEFAULTS = {
-    RTC:      { pdf: false, copies: 1 },
-    MTCC:     { pdf: false, copies: 2 },
-    CITYPROS: { pdf: false, copies: 1 },
-    NBI:      { pdf: true,  copies: 0 },
-    PNP_TAL:  { pdf: true,  copies: 0 },
-    PNP_MING: { pdf: false, copies: 0 },
-    RTC_CC:   { pdf: false, copies: 0 },
-    MTCC_CC:  { pdf: false, copies: 0 },
-    PROV_CC:  { pdf: false, copies: 0 },
-    BRGY:     { pdf: false, copies: 0 }
+    RTC:      { pdf: false, copies: 1, tx: true },
+    MTCC:     { pdf: false, copies: 2, tx: true },
+    CITYPROS: { pdf: false, copies: 1, tx: true },
+    NBI:      { pdf: true,  copies: 0, tx: true },
+    PNP_TAL:  { pdf: true,  copies: 0, tx: true },
+    PNP_MING: { pdf: false, copies: 0, tx: false },
+    RTC_CC:   { pdf: false, copies: 0, tx: false },
+    MTCC_CC:  { pdf: false, copies: 0, tx: false },
+    PROV_CC:  { pdf: false, copies: 0, tx: false },
+    BRGY:     { pdf: false, copies: 0, tx: false }
   };
 
   var PAPER = {
@@ -43,8 +44,8 @@
     idIn: $('idIn'), addBtn: $('addBtn'), results: $('results'),
     queue: $('queue'), qn: $('qn'), clearQ: $('clearQ'),
     routing: $('routing'), dateIn: $('dateIn'), paperIn: $('paperIn'),
-    chiefIn: $('chiefIn'), sigIn: $('sigIn'),
-    btnPdf: $('btnPdf'), btnPrint: $('btnPrint'), btnBoth: $('btnBoth'),
+    chiefIn: $('chiefIn'), sigIn: $('sigIn'), txIn: $('txIn'), ioIn: $('ioIn'), ioList: $('ioList'),
+    btnPdf: $('btnPdf'), btnPrint: $('btnPrint'), btnTx: $('btnTx'), btnBoth: $('btnBoth'),
     pv: $('pv'), pvBlank: $('pvBlank'), pvMeta: $('pvMeta'), pvRefresh: $('pvRefresh'),
     log: $('log'), busy: $('busy'), busyTxt: $('busyTxt'), printFrame: $('printFrame')
   };
@@ -186,10 +187,16 @@
   /* ---------------- routing table ---------------- */
   function drawRouting() {
     F.FORMS.forEach(function (f) {
-      route[f.id] = Object.assign({}, DEFAULTS[f.id] || { pdf: false, copies: 0 });
+      route[f.id] = Object.assign({}, DEFAULTS[f.id] || { pdf: false, copies: 0, tx: false });
       var tr = document.createElement('tr');
 
       var td1 = document.createElement('td'); td1.textContent = f.label;
+
+      var tdT = document.createElement('td'); tdT.className = 'c';
+      var tcb = document.createElement('input'); tcb.type = 'checkbox'; tcb.checked = route[f.id].tx;
+      tcb.setAttribute('aria-label', 'Send ' + f.label + ' a transmittal');
+      tcb.onchange = function () { route[f.id].tx = tcb.checked; mark(); sync(); };
+      tdT.appendChild(tcb);
 
       var td2 = document.createElement('td'); td2.className = 'c';
       var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = route[f.id].pdf;
@@ -211,7 +218,7 @@
       num.classList.toggle('zero', route[f.id].copies === 0);
       td3.appendChild(num);
 
-      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      tr.appendChild(td1); tr.appendChild(tdT); tr.appendChild(td2); tr.appendChild(td3);
       tr.dataset.form = f.id;
       el.routing.appendChild(tr);
     });
@@ -220,7 +227,7 @@
   function mark() {
     Array.prototype.forEach.call(el.routing.children, function (tr) {
       var r = route[tr.dataset.form];
-      var on = r.pdf || r.copies > 0;
+      var on = r.pdf || r.copies > 0 || r.tx;
       tr.classList.toggle('on', on);
       tr.classList.toggle('off', !on);
     });
@@ -235,7 +242,9 @@
       paper: { w: p.w, h: p.h },
       fmt: p.fmt,
       chief: el.chiefIn.value.trim() || 'LYLE E. DACLAN',
-      showSignatures: el.sigIn.value === '1'
+      showSignatures: el.sigIn.value === '1',
+      transmittal: el.txIn.value === '1',
+      io: el.ioIn.value.trim()
     };
   }
 
@@ -243,18 +252,140 @@
     return new jsPDF({ unit: 'mm', format: o.fmt, orientation: 'portrait', compress: true });
   }
 
-  /** Every page that will be produced, in production order. */
+  /* ---------------- transmittal ----------------
+     The covering letter lists every petitioner in the queue, in queue order.
+     Barangay is split into one letter per barangay, since each goes to a
+     different captain and may only carry that barangay's residents. Cover
+     letters are for printing only — they are not tied to one petitioner, so
+     they never go through the per-petitioner saved-PDF path. */
+
+  function queuedRecs() {
+    return queue.map(function (id) { return ml.rows.get(id); }).filter(Boolean);
+  }
+
+  /** Every distinct IO in the masterlist — the suggestions under the field. */
+  function allIOs() {
+    if (!ml) return [];
+    var seen = [];
+    ml.rows.forEach(function (rec) {
+      var v = F.fmtCell(rec['IO']);
+      if (v && seen.indexOf(v) < 0) seen.push(v);
+    });
+    return seen.sort();
+  }
+
+  /** The IO carrying most of the queued petitioners — the sensible default. */
+  function queuedIO() {
+    var tally = {}, best = '', top = 0;
+    queuedRecs().forEach(function (rec) {
+      var v = F.fmtCell(rec['IO']);
+      if (!v) return;
+      tally[v] = (tally[v] || 0) + 1;
+      if (tally[v] > top) { top = tally[v]; best = v; }
+    });
+    return best;
+  }
+
+  var ioTouched = false;
+
+  function refreshIO() {
+    var list = allIOs();
+    if (el.ioList.dataset.filled !== String(list.length) || !list.length) {
+      el.ioList.innerHTML = '';
+      list.forEach(function (name) {
+        var o = document.createElement('option');
+        o.value = name;
+        el.ioList.appendChild(o);
+      });
+      el.ioList.dataset.filled = String(list.length);
+    }
+    // Follow the queue until the user types their own name in.
+    if (!ioTouched) {
+      var q = queuedIO();
+      if (q) el.ioIn.value = q;
+    }
+  }
+
+  function brgyOf(rec) {
+    var b = String(rec['BARANGAY'] == null ? '' : rec['BARANGAY']).trim();
+    if (!b || b.toLowerCase() === 'others' || b.toLowerCase() === 'no data') return '';
+    return b;
+  }
+
+  // Names read "LAST, FIRST MIDDLE", so a plain locale compare sorts by surname.
+  // Case- and accent-insensitive so "de la Cruz" and "DELA CRUZ" sort together.
+  function byName(a, b) { return String(a).localeCompare(String(b), undefined, { sensitivity: 'base' }); }
+
+  /** One transmittal letter per recipient — or per barangay, for the Brgy form. */
+  function transmittalLetters(form) {
+    var recs = queuedRecs();
+    if (!recs.length) return [];
+    if (!form.dynamicBrgy) {
+      return [{ form: form, to: form.to, key: form.label,
+                names: recs.map(function (r) { return F.fmtCell(r['NAME']); }).sort(byName) }];
+    }
+    var order = [], groups = {};
+    recs.forEach(function (rec) {
+      var b = brgyOf(rec) || ' none';
+      if (!groups[b]) { groups[b] = []; order.push(b); }
+      groups[b].push(F.fmtCell(rec['NAME']));
+    });
+    order.forEach(function (b) { groups[b].sort(byName); });
+    return order.map(function (b) {
+      var to = form.to.slice();
+      if (b !== ' none') {
+        var parts = b.split(',');
+        to[1] = 'Barangay ' + parts[0].trim();
+        to[2] = parts.slice(1).join(',').trim() || 'Talisay City, Cebu';
+      }
+      return { form: form, to: to, key: form.label + (b !== ' none' ? ' - ' + to[1] : ''),
+               names: groups[b] };
+    });
+  }
+
+  /** Every transmittal page, for the recipients that are actually being sent to. */
+  function transmittalPlan() {
+    if (!ml || !queue.length || el.txIn.value !== '1') return [];
+    var pages = [];
+    F.FORMS.forEach(function (f) {
+      var r = route[f.id];
+      if (!r || !r.tx) return;                        // transmittal not ticked for this recipient
+      transmittalLetters(f).forEach(function (letter) {
+        F.transmittalPages(letter.names).forEach(function (pg, i, all) {
+          pages.push({ kind: 'tx', form: f, letter: letter, page: pg,
+                       part: i + 1, parts: all.length });
+        });
+      });
+    });
+    return pages;
+  }
+
+  /** Every page that will be produced, in production order.
+      Grouped by recipient first, then by petitioner — so a run reads
+      "all RTC, then all MTCC, then all City Prosecutor, ..." rather than
+      cycling through every recipient once per petitioner. */
   function plan() {
     var pdfJobs = [], printPages = [];
-    queue.forEach(function (id) {
-      var rec = ml.rows.get(id);
-      F.FORMS.forEach(function (f) {
-        var r = route[f.id];
+    F.FORMS.forEach(function (f) {
+      var r = route[f.id];
+      queue.forEach(function (id) {
+        var rec = ml.rows.get(id);
         if (r.pdf) pdfJobs.push({ id: id, rec: rec, form: f });
         for (var c = 0; c < r.copies; c++) printPages.push({ id: id, rec: rec, form: f, copy: c + 1 });
       });
     });
-    return { pdfJobs: pdfJobs, printPages: printPages };
+    // Cover letters lead the print run — one per recipient, ahead of the forms.
+    var tx = transmittalPlan();
+    return { pdfJobs: pdfJobs, printPages: tx.concat(printPages), tx: tx };
+  }
+
+  /** Draw one plan entry — a request form, or a transmittal cover page. */
+  function drawPage(doc, p, o) {
+    if (p.kind === 'tx') {
+      F.renderTransmittal(doc, p.form, p.page, A, Object.assign({}, o, { to: p.letter.to }));
+    } else {
+      F.renderForm(doc, p.form, p.rec, A, o);
+    }
   }
 
   function buildCombined(pages, o, autoPrint) {
@@ -263,7 +394,7 @@
     pages.forEach(function (p) {
       if (!first) doc.addPage(o.fmt, 'portrait');
       first = false;
-      F.renderForm(doc, p.form, p.rec, A, o);
+      drawPage(doc, p, o);
     });
     if (autoPrint) doc.autoPrint();
     return doc;
@@ -291,11 +422,18 @@
 
   /* ---------------- preview ---------------- */
   function sync() {
-    var p = ml ? plan() : { pdfJobs: [], printPages: [] };
+    refreshIO();
+    var p = ml ? plan() : { pdfJobs: [], printPages: [], tx: [] };
     var hasPdf = p.pdfJobs.length > 0, hasPrint = p.printPages.length > 0;
     var ready = !!ml && queue.length > 0;
+    var txPages = (p.tx || []).length;
     el.btnPdf.disabled = !(ready && hasPdf);
     el.btnPrint.disabled = !(ready && hasPrint);
+    el.btnTx.disabled = !(ready && txPages > 0);
+    var txTotal = txPages * TX_COPIES;
+    el.btnTx.textContent = txPages > 0
+      ? 'Print transmittal only (' + TX_COPIES + ' copies, ' + txTotal + ' page' + (txTotal === 1 ? '' : 's') + ')'
+      : 'Print transmittal only';
     el.btnBoth.disabled = !(ready && (hasPdf || hasPrint));
     el.pvRefresh.disabled = !(ready && (hasPdf || hasPrint));
 
@@ -379,9 +517,20 @@
   }
 
   /* ---------------- print ---------------- */
-  function printDocs() {
-    var o = opts(), pages = plan().printPages;
-    if (!pages.length) return;
+  // The office keeps a file copy of every transmittal, so "Print transmittal
+  // only" always runs the full set twice — two complete, correctly ordered copies.
+  var TX_COPIES = 2;
+
+  function printDocs() { printSet(plan().printPages); }
+  function printTransmittals() {
+    var tx = plan().tx, pages = [];
+    for (var c = 0; c < TX_COPIES; c++) pages = pages.concat(tx);
+    printSet(pages);
+  }
+
+  function printSet(pages) {
+    var o = opts();
+    if (!pages || !pages.length) return;
     busy(true, 'Preparing ' + pages.length + ' page' + (pages.length === 1 ? '' : 's') + ' for printing…');
     setTimeout(function () {
       try {
@@ -389,8 +538,11 @@
         printURL = doc.output('bloburl');
         var f = el.printFrame;
         f.onload = function () {
-          // The PDF carries an auto-print action; this is the belt to its braces.
-          try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { /* viewer handles it */ }
+          // The PDF carries its own auto-print action (doc.autoPrint above),
+          // which the embedded viewer fires on load. We deliberately do NOT
+          // also call f.contentWindow.print() here — doing both opened the
+          // print dialog twice for the same document.
+          try { f.contentWindow.focus(); } catch (e) { /* viewer handles it */ }
           busy(false);
         };
         f.src = printURL;
@@ -406,6 +558,7 @@
 
   el.btnPdf.onclick = function () { savePdfs(); };
   el.btnPrint.onclick = function () { printDocs(); };
+  el.btnTx.onclick = function () { printTransmittals(); };
   el.btnBoth.onclick = async function () { await savePdfs(); printDocs(); };
 
   /* ---------------- host bridge ---------------- */
@@ -433,9 +586,12 @@
     String(today.getMonth() + 1).padStart(2, '0') + '-' +
     String(today.getDate()).padStart(2, '0');
   ['change', 'input'].forEach(function (ev) {
-    [el.dateIn, el.paperIn, el.chiefIn, el.sigIn].forEach(function (n) {
+    [el.dateIn, el.paperIn, el.chiefIn, el.sigIn, el.txIn].forEach(function (n) {
       n.addEventListener(ev, function () { pvDirty = true; sync(); });
     });
+    // Mark the IO field as user-edited *before* sync() runs, so refreshIO()
+    // stops overriding the typed name with the queue's default.
+    el.ioIn.addEventListener(ev, function () { ioTouched = true; pvDirty = true; sync(); });
   });
   sync();
   log('Template is built in — nothing to link, no formulas to repair.');

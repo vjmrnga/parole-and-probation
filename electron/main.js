@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain, dialog, session, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, shell, protocol } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 
 const settingsStore = require('./settingsStore');
 const tray = require('./tray');
@@ -39,8 +40,91 @@ try {
 const isHiddenLaunch = process.argv.includes('--hidden');
 // Set by `npm run dev` (see package.json) to point at Vite's dev server for
 // hot reload; unset for a plain `npm start`/packaged build, which loads the
-// built renderer/dist/index.html instead.
+// built renderer over the app:// scheme below.
 const devServerUrl = process.env.ELECTRON_START_URL;
+
+// In production the renderer is served from a custom "app://" scheme instead
+// of file://. This is required for the Records Check preview/print: those
+// iframes render jsPDF output as blob: URLs, and Chromium's built-in PDF
+// viewer refuses to display a blob whose origin is the opaque/null origin a
+// file:// page produces — the viewer chrome shows but the pages come up blank
+// (it works in `npm run dev` only because Vite serves over http://, which
+// gives the blob a real origin). Registering app:// as a standard + secure
+// scheme gives the page a real tuple origin, so blob: PDFs render exactly as
+// they do in dev. Must run before app 'ready'.
+const APP_SCHEME = 'app';
+const APP_ORIGIN = `${APP_SCHEME}://bundle`;
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true },
+  },
+]);
+
+// Content-Security-Policy for the production app:// load. blob: is allowed
+// across the fetch directives the Records Check generator
+// (renderer/public/records-check-generator) needs to preview and print its
+// jsPDF output: frame-src/object-src let the preview iframe navigate to the
+// blob PDF, but Chromium's embedded PDF viewer then loads the actual bytes
+// through a child/fetch context that falls back to default-src — so without
+// blob: there the viewer chrome shows but the pages come up blank. script-src
+// stays 'self' only so scripts remain locked down.
+const APP_CSP =
+  "default-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; object-src 'self' blob:;";
+
+// Content types are set explicitly (rather than relying on net.fetch's file:
+// support, which varies by Electron version) because Chromium refuses to run
+// a `type="module"` script — which the Vite build emits — unless it is served
+// with a JavaScript MIME type.
+const MIME_TYPES = {
+  '.html': 'text/html',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.map': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.ico': 'image/x-icon',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.pdf': 'application/pdf',
+};
+
+// Serves renderer/dist over app://bundle/<path>. Guards against path traversal
+// escaping the dist root, and falls back to index.html for unknown paths so
+// the SPA still loads on any entry URL. CSP is attached here rather than via
+// webRequest.onHeadersReceived because that hook does not reliably fire for
+// custom-scheme responses served through protocol.handle.
+function registerAppProtocol() {
+  const distRoot = path.join(__dirname, '..', 'renderer', 'dist');
+  const indexPath = path.join(distRoot, 'index.html');
+  protocol.handle(APP_SCHEME, async (request) => {
+    let rel = decodeURIComponent(new URL(request.url).pathname);
+    if (rel === '/' || rel === '') rel = '/index.html';
+    let filePath = path.join(distRoot, rel);
+    if (filePath !== distRoot && !filePath.startsWith(distRoot + path.sep)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    // SPA fallback: unknown paths (that aren't real asset files) serve the shell.
+    if (!fs.existsSync(filePath)) filePath = indexPath;
+    try {
+      const body = await fs.promises.readFile(filePath);
+      const mime = MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': mime, 'Content-Security-Policy': APP_CSP },
+      });
+    } catch (err) {
+      return new Response('Not found', { status: 404 });
+    }
+  });
+}
 
 let mainWindow = null;
 let httpsServer = null;
@@ -90,7 +174,7 @@ function createWindow() {
   if (devServerUrl) {
     mainWindow.loadURL(devServerUrl);
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'dist', 'index.html'));
+    mainWindow.loadURL(`${APP_ORIGIN}/index.html`);
   }
 
   mainWindow.on('close', (event) => {
@@ -210,29 +294,11 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
-    // CSP is enforced via response headers rather than a <meta> tag in the
-    // HTML — Vite's dev server injects its own module/HMR scripts that a
-    // static CSP would fight, so this only applies to the production
-    // file:// load. Dev mode relies on Vite's own dev-server protections.
+    // Register the app:// handler (which also stamps the CSP — see APP_CSP)
+    // before the window loads it. Dev mode loads Vite's http:// dev server
+    // instead and relies on Vite's own dev-server protections.
     if (!devServerUrl) {
-      session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-        callback({
-          responseHeaders: {
-            ...details.responseHeaders,
-            // blob: is allowed across the fetch directives the Records Check
-            // generator (renderer/public/records-check-generator) needs to
-            // preview and print its jsPDF output: frame-src/object-src let the
-            // preview iframe navigate to the blob PDF, but Chromium's embedded
-            // PDF viewer then loads the actual bytes through a child/fetch
-            // context that falls back to default-src — so without blob: there
-            // the viewer chrome shows but the pages come up blank. script-src
-            // stays 'self' only so scripts remain locked down.
-            'Content-Security-Policy': [
-              "default-src 'self' blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src 'self' blob:; object-src 'self' blob:;",
-            ],
-          },
-        });
-      });
+      registerAppProtocol();
     }
 
     createWindow();
@@ -476,11 +542,21 @@ if (!gotLock) {
   // is what actually re-uploads them (it holds the auth token). See
   // electron/docEditWatcher.js for the watching mechanics.
   ipcMain.handle('doc-edit-open', async (_e, { key, base64, filename }) => {
-    return docEditWatcher.startEdit({ key, base64, filename }, (nextBase64) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('doc-edit-changed', { key, base64: nextBase64 });
+    return docEditWatcher.startEdit(
+      { key, base64, filename },
+      (nextBase64) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('doc-edit-changed', { key, base64: nextBase64 });
+        }
+      },
+      () => {
+        // The editor was closed — tell the renderer so it can release the lock
+        // without the user clicking "Done".
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('doc-edit-closed', { key });
+        }
       }
-    });
+    );
   });
 
   ipcMain.handle('doc-edit-stop', async (_e, { key }) => {

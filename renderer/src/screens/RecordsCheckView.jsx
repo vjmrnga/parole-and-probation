@@ -71,7 +71,7 @@ function GeneratorTab({ iframeRef, count, loading, onRefresh }) {
   );
 }
 
-function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefresh, onOpen, onSaveAs, onDelete, onForceUnlock }) {
+function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefresh, onSaveAs, onDelete, onForceUnlock }) {
   const [search, setSearch] = useState('');
   const [officerFilter, setOfficerFilter] = useState();
   const [dateRange, setDateRange] = useState(null);
@@ -121,7 +121,6 @@ function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefre
         const canDelete = isAdmin || row.generated_by === userId;
         return (
           <Space wrap>
-            <Button size="small" loading={busyId === row.id} onClick={() => onOpen(row.id)}>Open (read-only)</Button>
             {mine ? (
               <Button size="small" type="primary" loading={editor.busyId === row.id} onClick={() => editor.stopEdit(row.id)}>
                 Done editing
@@ -131,7 +130,7 @@ function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefre
                 <Tag icon={<LockOutlined />} color="orange">In use{lock.name ? ` — ${lock.name}` : ''}</Tag>
               </Tooltip>
             ) : (
-              <Button size="small" loading={editor.busyId === row.id} onClick={() => editor.startEdit(row.id)}>Edit</Button>
+              <Button size="small" loading={editor.busyId === row.id} onClick={() => editor.startEdit(row.id)}>Open</Button>
             )}
             <Button size="small" loading={busyId === row.id} onClick={() => onSaveAs(row.id)}>Save a copy as…</Button>
             {isAdmin && lockedByOther && (
@@ -253,18 +252,6 @@ export default function RecordsCheckView() {
     }
   }
 
-  async function openFile(id) {
-    setBusyId(id);
-    try {
-      const { base64, filename } = await ApiClient.get(`/records-check/${id}/download`);
-      await window.api.recordsCheckOpenFile(base64, filename);
-    } catch (err) {
-      message.error(err.message);
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   async function saveFileAs(id) {
     setBusyId(id);
     try {
@@ -358,7 +345,6 @@ export default function RecordsCheckView() {
                 userId={user?.id}
                 editor={editor}
                 onRefresh={loadFiles}
-                onOpen={openFile}
                 onSaveAs={saveFileAs}
                 onDelete={deleteFile}
                 onForceUnlock={forceUnlock}

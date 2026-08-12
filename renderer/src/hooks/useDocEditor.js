@@ -52,12 +52,12 @@ export function useDocEditor({ keyPrefix, lockPath, uploadPath, downloadFile, on
   const [editingIds, setEditingIds] = useState([]);
   const [busyId, setBusyId] = useState(null);
 
-  // The 'doc-edit-changed' listener is registered once but needs live access
-  // to which ids are still being edited and the current config, so mirror them
-  // into refs.
+  // The 'doc-edit-changed' / 'doc-edit-closed' listeners are registered once
+  // but need live access to which ids are still being edited and the current
+  // config, so mirror them into refs.
   const editingRef = useRef(new Set());
-  const cfgRef = useRef({ keyPrefix, uploadPath, onSaved });
-  cfgRef.current = { keyPrefix, uploadPath, onSaved };
+  const cfgRef = useRef({ keyPrefix, uploadPath, lockPath, onSaved, onReleased });
+  cfgRef.current = { keyPrefix, uploadPath, lockPath, onSaved, onReleased };
 
   const watchKey = useCallback((id) => `${keyPrefix}:${id}`, [keyPrefix]);
 
@@ -81,6 +81,32 @@ export function useDocEditor({ keyPrefix, lockPath, uploadPath, downloadFile, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The main process fires 'doc-edit-closed' when it detects the editor was
+  // closed. Release the lock automatically so the user doesn't have to click
+  // "Done editing" — the watcher has already stopped, so we only clear our own
+  // state and drop the server-side lock.
+  useEffect(() => {
+    if (!window.api?.onDocEditClosed) return undefined;
+    const unsubscribe = window.api.onDocEditClosed(async ({ key }) => {
+      const { keyPrefix: prefix, lockPath: lock, onReleased: released } = cfgRef.current;
+      const prefixDot = `${prefix}:`;
+      if (!key.startsWith(prefixDot)) return; // event for a different list's hook
+      const id = key.slice(prefixDot.length);
+      if (!editingRef.current.has(String(id))) return; // already released
+      editingRef.current.delete(String(id));
+      setEditingIds((prev) => prev.filter((x) => x !== String(id)));
+      try {
+        await ApiClient.delete(lock(id));
+        message.success('Document closed — released for others.', 2);
+      } catch (err) {
+        message.error(err.message);
+      }
+      if (released) released(id);
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const startEdit = useCallback(async (id) => {
     setBusyId(id);
     try {
@@ -94,7 +120,7 @@ export function useDocEditor({ keyPrefix, lockPath, uploadPath, downloadFile, on
       }
       editingRef.current.add(String(id));
       setEditingIds((prev) => [...new Set([...prev, String(id)])]);
-      message.info('Opened for editing — your saves sync automatically. Click "Done editing" when finished.', 4);
+      message.info('Opened for editing — your saves sync automatically, and it releases when you close the file.', 4);
     } catch (err) {
       message.error(err.message);
     } finally {
