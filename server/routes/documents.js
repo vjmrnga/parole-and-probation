@@ -5,6 +5,9 @@ const dayjs = require('dayjs');
 const db = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { DOCUMENT_CHECKLIST_ITEMS, DOCUMENT_CHECKLIST_KEYS } = require('../../shared/documentChecklist');
+const { acquireLock, releaseLock, requireLock } = require('./lockHelpers');
+
+const CHECKLIST_WHERE = 't.probationer_id = ? AND t.doc_key = ?';
 
 async function loadProbationer(id) {
   const [rows] = await db.getPool().query('SELECT * FROM probationers WHERE id = ?', [id]);
@@ -32,7 +35,10 @@ function buildDocumentsRouter(settingsStore, documentsDir) {
       if (!probationer) return res.status(404).json({ error: 'Not found' });
 
       const [rows] = await db.getPool().query(
-        'SELECT * FROM document_checklist WHERE probationer_id = ?',
+        `SELECT dc.*, TRIM(CONCAT_WS(' ', lu.first_name, lu.middle_name, lu.last_name)) AS locked_by_name
+           FROM document_checklist dc
+           LEFT JOIN users lu ON lu.id = dc.locked_by
+          WHERE dc.probationer_id = ?`,
         [req.params.id]
       );
       const byKey = new Map(rows.map((r) => [r.doc_key, r]));
@@ -48,6 +54,9 @@ function buildDocumentsRouter(settingsStore, documentsDir) {
           hasFile: !!(row && row.file_path),
           originalFilename: row ? row.original_filename : null,
           mimeType: row ? row.mime_type : null,
+          lockedBy: row ? row.locked_by : null,
+          lockedByName: row ? row.locked_by_name : null,
+          lockedAt: row ? row.locked_at : null,
         };
       });
       res.json(result);
@@ -183,6 +192,78 @@ function buildDocumentsRouter(settingsStore, documentsDir) {
         'UPDATE document_checklist SET file_path = NULL, original_filename = NULL, mime_type = NULL WHERE probationer_id = ? AND doc_key = ?',
         [req.params.id, req.params.docKey]
       );
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Edit-in-place check-out for the attached file — same one-editor-at-a-time
+  // model as the report tables (see server/routes/lockHelpers.js), keyed by
+  // (probationer_id, doc_key) rather than a numeric id. Only meaningful once a
+  // file is attached, so acquireLock's 404-on-missing-row doubles as "nothing
+  // to edit yet".
+  router.post('/:docKey/lock', async (req, res, next) => {
+    try {
+      const probationer = await loadProbationer(req.params.id);
+      if (!probationer) return res.status(404).json({ error: 'Not found' });
+      if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
+
+      const result = await acquireLock(
+        db.getPool(), 'document_checklist', CHECKLIST_WHERE, [req.params.id, req.params.docKey], req.user.id
+      );
+      if (!result.ok) return res.status(result.status).json(result);
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/:docKey/lock', async (req, res, next) => {
+    try {
+      const probationer = await loadProbationer(req.params.id);
+      if (!probationer) return res.status(404).json({ error: 'Not found' });
+      if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
+
+      const result = await releaseLock(
+        db.getPool(), 'document_checklist', CHECKLIST_WHERE, [req.params.id, req.params.docKey],
+        req.user.id, req.user.role === 'admin'
+      );
+      if (!result.ok) return res.status(result.status).json(result);
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Overwrites the attached file's bytes in place (holder-only), driven by the
+  // watch-and-upload flow in electron/main.js. Distinct from POST /:docKey/file
+  // above — that one attaches/replaces a file via the capture modal and needs
+  // no lock; this one saves edits back to the file the user checked out and so
+  // requires they still hold the lock. The file keeps its existing extension
+  // and mime_type; only the contents change, matching what the editor saved.
+  router.put('/:docKey/file', async (req, res, next) => {
+    try {
+      const probationer = await loadProbationer(req.params.id);
+      if (!probationer) return res.status(404).json({ error: 'Not found' });
+      if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
+
+      const { base64 } = req.body || {};
+      if (!base64) return res.status(400).json({ error: 'base64 is required' });
+
+      const gate = await requireLock(
+        db.getPool(), 'document_checklist', CHECKLIST_WHERE, [req.params.id, req.params.docKey], req.user.id
+      );
+      if (!gate.ok) return res.status(gate.status).json(gate);
+
+      const [rows] = await db.getPool().query(
+        'SELECT file_path FROM document_checklist WHERE probationer_id = ? AND doc_key = ?',
+        [req.params.id, req.params.docKey]
+      );
+      const row = rows[0];
+      if (!row || !row.file_path) return res.status(404).json({ error: 'No file on file for this document' });
+
+      fs.writeFileSync(row.file_path, Buffer.from(base64, 'base64'));
       res.json({ ok: true });
     } catch (err) {
       next(err);

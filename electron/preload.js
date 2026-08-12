@@ -61,4 +61,16 @@ contextBridge.exposeInMainWorld('api', {
 
   // Document checklist attachments
   documentOpenFile: (base64, filename) => ipcRenderer.invoke('document-open-file', { base64, filename }),
+
+  // Edit-in-place (watch & upload) — shared by PSIR / Final Report / Records
+  // Check / checklist attachments. `key` is a stable per-document id the
+  // renderer uses to correlate change events back to the right document.
+  docEditOpen: (key, base64, filename) => ipcRenderer.invoke('doc-edit-open', { key, base64, filename }),
+  docEditStop: (key) => ipcRenderer.invoke('doc-edit-stop', { key }),
+  onDocEditChanged: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('doc-edit-changed', listener);
+    // Return an unsubscribe so a React effect can clean up on unmount.
+    return () => ipcRenderer.removeListener('doc-edit-changed', listener);
+  },
 });

@@ -19,6 +19,7 @@ const statusEnums = require('../shared/statusEnums');
 const documentChecklist = require('../shared/documentChecklist');
 const { parseProbationerImport, buildImportTemplate } = require('./importParser');
 const { parseActiveSupervisionImport } = require('./activeSupervisionImportParser');
+const docEditWatcher = require('./docEditWatcher');
 
 let wacomPad = null;
 try {
@@ -248,6 +249,7 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     app.isQuittingForReal = true;
+    docEditWatcher.stopAll();
     stopHeadOfficeServer();
   });
 
@@ -419,6 +421,26 @@ if (!gotLock) {
     fs.writeFileSync(filePath, Buffer.from(base64, 'base64'));
     const err = await shell.openPath(filePath);
     return err ? { ok: false, error: err } : { ok: true };
+  });
+
+  // ---- IPC: edit-in-place (watch & upload) ----
+  // Generic across every editable document type (PSIR/Final Report/Records
+  // Check/checklist attachment). `key` is a stable per-document id the renderer
+  // also uses to route the change events back (see renderer/src/hooks/
+  // useDocEditor.js). Opens the file, watches it, and pushes each saved
+  // revision's bytes back to the renderer via 'doc-edit-changed'; the renderer
+  // is what actually re-uploads them (it holds the auth token). See
+  // electron/docEditWatcher.js for the watching mechanics.
+  ipcMain.handle('doc-edit-open', async (_e, { key, base64, filename }) => {
+    return docEditWatcher.startEdit({ key, base64, filename }, (nextBase64) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('doc-edit-changed', { key, base64: nextBase64 });
+      }
+    });
+  });
+
+  ipcMain.handle('doc-edit-stop', async (_e, { key }) => {
+    return docEditWatcher.stopEdit(key);
   });
 
   // ---- IPC: Records Check ----

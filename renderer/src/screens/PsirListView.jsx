@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, DatePicker, Input, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { Button, DatePicker, Input, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography, message } from 'antd';
+import { LockOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
+import { useDocEditor, lockStatus } from '../hooks/useDocEditor.js';
 
 const { RangePicker } = DatePicker;
 
@@ -67,6 +69,24 @@ export default function PsirListView() {
       message.error(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  const editor = useDocEditor({
+    keyPrefix: 'psir',
+    lockPath: (id) => `/psir/${id}/lock`,
+    uploadPath: (id) => `/psir/${id}/file`,
+    downloadFile: (id) => ApiClient.get(`/psir/${id}/download`),
+    onReleased: load,
+  });
+
+  async function forceUnlock(id) {
+    try {
+      await ApiClient.delete(`/psir/${id}/lock`);
+      message.success('Lock released.');
+      await load();
+    } catch (err) {
+      message.error(err.message);
     }
   }
 
@@ -160,17 +180,38 @@ export default function PsirListView() {
           {
             title: 'Actions',
             key: 'actions',
-            render: (_, row) => (
-              <Space>
-                <Button size="small" loading={busyId === row.id} onClick={() => openFile(row.id)}>Open</Button>
-                <Button size="small" loading={busyId === row.id} onClick={() => saveFileAs(row.id)}>Save a copy as…</Button>
-                {isAdmin && (
-                  <Popconfirm title="Delete this PSIR?" onConfirm={() => remove(row.id)}>
-                    <Button size="small" danger>Delete</Button>
-                  </Popconfirm>
-                )}
-              </Space>
-            ),
+            render: (_, row) => {
+              const lock = lockStatus(row, user?.id);
+              const mine = editor.isEditing(row.id) || (lock.locked && lock.byMe);
+              const lockedByOther = lock.locked && !lock.byMe;
+              return (
+                <Space wrap>
+                  <Button size="small" loading={busyId === row.id} onClick={() => openFile(row.id)}>Open (read-only)</Button>
+                  {mine ? (
+                    <Button size="small" type="primary" loading={editor.busyId === row.id} onClick={() => editor.stopEdit(row.id)}>
+                      Done editing
+                    </Button>
+                  ) : lockedByOther ? (
+                    <Tooltip title={`Being edited by ${lock.name || 'another user'}`}>
+                      <Tag icon={<LockOutlined />} color="orange">In use{lock.name ? ` — ${lock.name}` : ''}</Tag>
+                    </Tooltip>
+                  ) : (
+                    <Button size="small" loading={editor.busyId === row.id} onClick={() => editor.startEdit(row.id)}>Edit</Button>
+                  )}
+                  <Button size="small" loading={busyId === row.id} onClick={() => saveFileAs(row.id)}>Save a copy as…</Button>
+                  {isAdmin && lockedByOther && (
+                    <Popconfirm title={`Force-release ${lock.name || 'this'} lock?`} onConfirm={() => forceUnlock(row.id)}>
+                      <Button size="small" danger>Force unlock</Button>
+                    </Popconfirm>
+                  )}
+                  {isAdmin && (
+                    <Popconfirm title="Delete this PSIR?" onConfirm={() => remove(row.id)}>
+                      <Button size="small" danger>Delete</Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              );
+            },
           },
         ]}
       />

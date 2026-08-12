@@ -4,6 +4,8 @@ const path = require('path');
 const db = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
+const { lockSelectSql } = require('./lockHelpers');
+const { mountEditRoutes } = require('./editableDoc');
 
 // fileReportsDir: absolute path where generated Final Report .docx files are
 // written (see server/routes/psir.js's psirDir for the same convention) —
@@ -28,10 +30,12 @@ function buildFileReportsRouter(settingsStore, fileReportsDir) {
       const [rows] = await db.getPool().query(
         `SELECT r.id, r.probationer_id, r.filename, r.generated_at,
                 ${probationerNameSql('p')} AS probationer_name, p.docket_number,
-                ${userNameSql('u')} AS generated_by_name
+                ${userNameSql('u')} AS generated_by_name,
+                ${lockSelectSql('r', 'lu')}
          FROM file_reports r
          JOIN probationers p ON p.id = r.probationer_id
          JOIN users u ON u.id = r.generated_by
+         LEFT JOIN users lu ON lu.id = r.locked_by
          ${where} ORDER BY r.generated_at DESC`,
         values
       );
@@ -101,6 +105,9 @@ function buildFileReportsRouter(settingsStore, fileReportsDir) {
       next(err);
     }
   });
+
+  // Edit-in-place check-out: POST/DELETE /:id/lock and PUT /:id/file.
+  mountEditRoutes(router, 'file_reports');
 
   return router;
 }

@@ -4,6 +4,8 @@ const path = require('path');
 const db = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
+const { lockSelectSql } = require('./lockHelpers');
+const { mountEditRoutes } = require('./editableDoc');
 
 function safeSeg(s) {
   return String(s).replace(/[\\/:*?"<>|]+/g, '-').trim();
@@ -21,10 +23,12 @@ function buildRecordsCheckRouter(settingsStore, recordsCheckDir) {
       const [rows] = await db.getPool().query(
         `SELECT r.id, r.probationer_id, r.recipient, r.date_folder, r.filename, r.generated_at,
                 ${probationerNameSql('p')} AS probationer_name, p.docket_number,
-                ${userNameSql('u')} AS generated_by_name
+                ${userNameSql('u')} AS generated_by_name,
+                ${lockSelectSql('r', 'lu')}
          FROM records_check_files r
          JOIN probationers p ON p.id = r.probationer_id
          JOIN users u ON u.id = r.generated_by
+         LEFT JOIN users lu ON lu.id = r.locked_by
          ORDER BY r.generated_at DESC`
       );
       res.json(rows);
@@ -88,6 +92,9 @@ function buildRecordsCheckRouter(settingsStore, recordsCheckDir) {
       next(err);
     }
   });
+
+  // Edit-in-place check-out: POST/DELETE /:id/lock and PUT /:id/file.
+  mountEditRoutes(router, 'records_check_files');
 
   return router;
 }

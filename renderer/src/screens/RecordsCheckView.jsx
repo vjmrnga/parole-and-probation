@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, Popconfirm, Space, Table, Tabs, Typography, message } from 'antd';
+import { Button, Popconfirm, Space, Table, Tabs, Tag, Tooltip, Typography, message } from 'antd';
+import { LockOutlined } from '@ant-design/icons';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
+import { useDocEditor, lockStatus } from '../hooks/useDocEditor.js';
 import { composeName } from '../utils/composeName.js';
 
 const { Title, Text } = Typography;
@@ -67,7 +69,7 @@ function GeneratorTab({ iframeRef, count, loading, onRefresh }) {
   );
 }
 
-function SavedFilesTab({ rows, loading, busyId, isAdmin, onRefresh, onOpen, onSaveAs, onDelete }) {
+function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefresh, onOpen, onSaveAs, onDelete, onForceUnlock }) {
   const recipients = [...new Set(rows.map((r) => r.recipient))].sort();
 
   const columns = [
@@ -84,18 +86,39 @@ function SavedFilesTab({ rows, loading, busyId, isAdmin, onRefresh, onOpen, onSa
       sorter: (a, b) => new Date(a.generated_at) - new Date(b.generated_at), defaultSortOrder: 'descend',
     },
     {
-      title: 'Actions', key: 'actions', width: 280,
-      render: (_, row) => (
-        <Space>
-          <Button size="small" loading={busyId === row.id} onClick={() => onOpen(row.id)}>Open</Button>
-          <Button size="small" loading={busyId === row.id} onClick={() => onSaveAs(row.id)}>Save a copy as…</Button>
-          {isAdmin && (
-            <Popconfirm title="Delete this file?" onConfirm={() => onDelete(row.id)}>
-              <Button size="small" danger>Delete</Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+      title: 'Actions', key: 'actions', width: 360,
+      render: (_, row) => {
+        const lock = lockStatus(row, userId);
+        const mine = editor.isEditing(row.id) || (lock.locked && lock.byMe);
+        const lockedByOther = lock.locked && !lock.byMe;
+        return (
+          <Space wrap>
+            <Button size="small" loading={busyId === row.id} onClick={() => onOpen(row.id)}>Open (read-only)</Button>
+            {mine ? (
+              <Button size="small" type="primary" loading={editor.busyId === row.id} onClick={() => editor.stopEdit(row.id)}>
+                Done editing
+              </Button>
+            ) : lockedByOther ? (
+              <Tooltip title={`Being edited by ${lock.name || 'another user'}`}>
+                <Tag icon={<LockOutlined />} color="orange">In use{lock.name ? ` — ${lock.name}` : ''}</Tag>
+              </Tooltip>
+            ) : (
+              <Button size="small" loading={editor.busyId === row.id} onClick={() => editor.startEdit(row.id)}>Edit</Button>
+            )}
+            <Button size="small" loading={busyId === row.id} onClick={() => onSaveAs(row.id)}>Save a copy as…</Button>
+            {isAdmin && lockedByOther && (
+              <Popconfirm title={`Force-release ${lock.name || 'this'} lock?`} onConfirm={() => onForceUnlock(row.id)}>
+                <Button size="small" danger>Force unlock</Button>
+              </Popconfirm>
+            )}
+            {isAdmin && (
+              <Popconfirm title="Delete this file?" onConfirm={() => onDelete(row.id)}>
+                <Button size="small" danger>Delete</Button>
+              </Popconfirm>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
@@ -206,6 +229,24 @@ export default function RecordsCheckView() {
     }
   }
 
+  const editor = useDocEditor({
+    keyPrefix: 'records-check',
+    lockPath: (id) => `/records-check/${id}/lock`,
+    uploadPath: (id) => `/records-check/${id}/file`,
+    downloadFile: (id) => ApiClient.get(`/records-check/${id}/download`),
+    onReleased: loadFiles,
+  });
+
+  async function forceUnlock(id) {
+    try {
+      await ApiClient.delete(`/records-check/${id}/lock`);
+      message.success('Lock released.');
+      await loadFiles();
+    } catch (err) {
+      message.error(err.message);
+    }
+  }
+
   useEffect(() => {
     loadFiles();
   }, []);
@@ -255,10 +296,13 @@ export default function RecordsCheckView() {
                 loading={filesLoading}
                 busyId={busyId}
                 isAdmin={isAdmin}
+                userId={user?.id}
+                editor={editor}
                 onRefresh={loadFiles}
                 onOpen={openFile}
                 onSaveAs={saveFileAs}
                 onDelete={deleteFile}
+                onForceUnlock={forceUnlock}
               />
             ),
           },

@@ -74,6 +74,19 @@ const NEW_USER_COLUMNS = [
   { name: 'title', ddl: `${sqlEnum(USER_TITLES)} NULL` },
 ];
 
+// Edit-in-place check-out lock, shared by every table that stores a
+// generated/attached file users can open, edit and save back (psir_reports,
+// file_reports, records_check_files, document_checklist). locked_by is the
+// user who currently holds the file open for editing; locked_at is when they
+// took it. A NULL locked_by means the file is free. See
+// server/routes/lockHelpers.js for the acquire/release/staleness logic and
+// electron/main.js's doc-edit-* handlers for the watch-and-upload flow that
+// drives it. Added to existing DBs via addMissingColumns (see runMigration).
+const NEW_LOCK_COLUMNS = [
+  { name: 'locked_by', ddl: 'INT NULL' },
+  { name: 'locked_at', ddl: 'TIMESTAMP NULL' },
+];
+
 // Same rollforward pattern as NEW_PROBATIONER_COLUMNS above, for
 // attendance_log — CREATE TABLE IF NOT EXISTS below covers fresh installs,
 // this covers columns added after a database already exists.
@@ -185,6 +198,8 @@ function buildSchemaStatements() {
       snapshot              JSON NULL,
       generated_by          INT NOT NULL,
       generated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      locked_by             INT NULL,
+      locked_at             TIMESTAMP NULL,
       FOREIGN KEY (probationer_id) REFERENCES probationers(id) ON DELETE CASCADE,
       FOREIGN KEY (generated_by) REFERENCES users(id),
       INDEX idx_probationer (probationer_id)
@@ -201,6 +216,8 @@ function buildSchemaStatements() {
       snapshot              JSON NULL,
       generated_by          INT NOT NULL,
       generated_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      locked_by             INT NULL,
+      locked_at             TIMESTAMP NULL,
       FOREIGN KEY (probationer_id) REFERENCES probationers(id) ON DELETE CASCADE,
       FOREIGN KEY (generated_by) REFERENCES users(id),
       INDEX idx_probationer (probationer_id)
@@ -219,6 +236,8 @@ function buildSchemaStatements() {
       file_path      VARCHAR(500) NOT NULL,
       generated_by   INT NOT NULL,
       generated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      locked_by      INT NULL,
+      locked_at      TIMESTAMP NULL,
       FOREIGN KEY (probationer_id) REFERENCES probationers(id) ON DELETE CASCADE,
       FOREIGN KEY (generated_by) REFERENCES users(id),
       INDEX idx_probationer (probationer_id),
@@ -277,6 +296,8 @@ function buildSchemaStatements() {
       original_filename VARCHAR(255) NULL,
       mime_type         VARCHAR(100) NULL,
       updated_by        INT NULL,
+      locked_by         INT NULL,
+      locked_at         TIMESTAMP NULL,
       updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (probationer_id) REFERENCES probationers(id) ON DELETE CASCADE,
       FOREIGN KEY (updated_by) REFERENCES users(id),
@@ -355,6 +376,11 @@ async function runMigration(pool) {
   await addMissingColumns(pool, 'probationers', NEW_PROBATIONER_COLUMNS);
   await addMissingColumns(pool, 'attendance_log', NEW_ATTENDANCE_LOG_COLUMNS);
   await addMissingColumns(pool, 'users', NEW_USER_COLUMNS);
+  // Edit-in-place lock columns, added to every file-bearing table that
+  // existed before the check-out feature (see NEW_LOCK_COLUMNS).
+  for (const table of ['psir_reports', 'file_reports', 'records_check_files', 'document_checklist']) {
+    await addMissingColumns(pool, table, NEW_LOCK_COLUMNS);
+  }
   await migrateFullNameToParts(pool);
   await migrateUserFullNameToParts(pool);
 }
