@@ -5,7 +5,7 @@ import { useApp } from '../AppContext.jsx';
 import {
   CIVIL_STATUS_OPTIONS as CIVIL_OPTIONS, RELIGION_OPTIONS, NATIONALITY_OPTIONS, GENDER_PREF_OPTIONS,
 } from '../constants/psirOptions.js';
-import { splitName } from '../utils/splitName.js';
+import { composeName } from '../utils/composeName.js';
 
 // The generator's <select id="religion">/etc. only render one of their
 // fixed <option> values or "__other" (with the free text in a companion
@@ -38,9 +38,10 @@ function buildPrefillPayload(probationer, orgSettings) {
   // Seeded from the probationer's own case record every time — not just the
   // first time — so these stay in sync even after psir_profile has started
   // accumulating Case Detail / PSIR Generator edits of its own.
-  const { lastName, firstName, middleName } = splitName(probationer.full_name);
   const seeded = {
-    lastName, firstName, middleName,
+    lastName: probationer.last_name || '',
+    firstName: probationer.first_name || '',
+    middleName: probationer.middle_name || '',
     docketNo: probationer.docket_number || '',
     criminalCaseNo: probationer.case_number || '',
     judgeName: probationer.judge || '',
@@ -141,7 +142,7 @@ export default function GeneratePsirModal({ open, probationer, onClose, onGenera
     <Modal
       open={open}
       onCancel={onClose}
-      title={`Generate PSIR — ${probationer.full_name}`}
+      title={`Generate PSIR — ${composeName(probationer)}`}
       width="95%"
       centered
       styles={{ body: { height: '78vh', padding: 0 } }}

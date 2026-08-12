@@ -3,7 +3,7 @@ import { Button, Modal, Space, message } from 'antd';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
 import { FINAL_REPORT_CIVIL_STATUS_OPTIONS } from '../constants/finalReportOptions.js';
-import { splitName } from '../utils/splitName.js';
+import { composeName } from '../utils/composeName.js';
 
 // Maps psir_org_settings columns -> the Final Report Generator's own field
 // ids (see renderer/public/final-report-generator/index.html). Reuses the
@@ -25,9 +25,10 @@ function buildPrefillPayload(probationer, orgSettings) {
   // Seeded from the probationer's own case record every time — not just the
   // first time — so these stay in sync even after file_report_profile has
   // started accumulating past generations of its own.
-  const { lastName, firstName, middleName } = splitName(probationer.full_name);
   const seeded = {
-    lastName, firstName, middleName,
+    lastName: probationer.last_name || '',
+    firstName: probationer.first_name || '',
+    middleName: probationer.middle_name || '',
     docketNo: probationer.docket_number || '',
     probAddr: probationer.address || '',
     grantJudgeName: probationer.judge || '',
@@ -122,7 +123,7 @@ export default function GenerateFinalReportModal({ open, probationer, onClose, o
     <Modal
       open={open}
       onCancel={onClose}
-      title={`Generate Final Report — ${probationer.full_name}`}
+      title={`Generate Final Report — ${composeName(probationer)}`}
       width="95%"
       centered
       styles={{ body: { height: '78vh', padding: 0 } }}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, DatePicker, Divider, Form, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Col, DatePicker, Divider, Form, Input, InputNumber, message, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from 'antd';
 import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ApiClient } from '../api/apiClient.js';
@@ -7,6 +7,8 @@ import { useApp } from '../AppContext.jsx';
 import ImportCasesModal from '../components/ImportCasesModal.jsx';
 import ImportActiveSupervisionModal from '../components/ImportActiveSupervisionModal.jsx';
 import { STAGE_COLORS, STATUS_COLORS } from '../constants/statusColors.js';
+import { CIVIL_STATUS_OPTIONS } from '../constants/psirOptions.js';
+import { composeName } from '../utils/composeName.js';
 
 const { Title } = Typography;
 
@@ -94,7 +96,9 @@ export default function DashboardView() {
     setCreating(true);
     try {
       await ApiClient.post('/probationers', {
-        fullName: values.fullName.trim(),
+        firstName: values.firstName.trim(),
+        middleName: values.middleName?.trim() || '',
+        lastName: values.lastName.trim(),
         age: values.age ?? null,
         docketNumber: values.docketNumber.trim(),
         address: values.address?.trim() || '',
@@ -105,6 +109,7 @@ export default function DashboardView() {
         convictionDate: values.convictionDate ? values.convictionDate.format('YYYY-MM-DD') : null,
         caseNumber: values.caseNumber?.trim() || '',
         dateOfOrder: values.dateOfOrder ? values.dateOfOrder.format('YYYY-MM-DD') : null,
+        dateOrderReceived: values.dateOrderReceived ? values.dateOrderReceived.format('YYYY-MM-DD') : null,
         supervisionPeriod: values.supervisionPeriod?.trim() || '',
         supervisionStartDate: values.supervisionStartDate ? values.supervisionStartDate.format('YYYY-MM-DD') : null,
         supervisionEndDate: values.supervisionEndDate ? values.supervisionEndDate.format('YYYY-MM-DD') : null,
@@ -117,7 +122,7 @@ export default function DashboardView() {
         ...(isAdmin && values.assignedOfficerId ? { assignedOfficerId: values.assignedOfficerId } : {}),
       });
       setNewCaseOpen(false);
-      message.success(`Case for ${values.fullName.trim()} created.`);
+      message.success(`Case for ${composeName({ first_name: values.firstName, middle_name: values.middleName, last_name: values.lastName })} created.`);
       await loadDashboard();
     } catch (err) {
       setNewCaseError(err.message);
@@ -129,8 +134,10 @@ export default function DashboardView() {
   function openEditCase(record) {
     setEditError('');
     editForm.setFieldsValue({
-      fullName: record.full_name,
-      age: record.age,
+      firstName: record.first_name,
+      middleName: record.middle_name,
+      lastName: record.last_name,
+      age: record.birthdate ? dayjs().diff(dayjs(record.birthdate), 'year') : record.age,
       docketNumber: record.docket_number,
       address: record.address,
       offense: record.offense,
@@ -140,6 +147,7 @@ export default function DashboardView() {
       convictionDate: record.conviction_date ? dayjs(record.conviction_date) : null,
       caseNumber: record.case_number,
       dateOfOrder: record.date_of_order ? dayjs(record.date_of_order) : null,
+      dateOrderReceived: record.date_order_received ? dayjs(record.date_order_received) : null,
       supervisionPeriod: record.supervision_period,
       supervisionStartDate: record.supervision_start_date ? dayjs(record.supervision_start_date) : null,
       supervisionEndDate: record.supervision_end_date ? dayjs(record.supervision_end_date) : null,
@@ -159,7 +167,9 @@ export default function DashboardView() {
     setSaving(true);
     try {
       await ApiClient.patch(`/probationers/${editCase.id}`, {
-        fullName: values.fullName.trim(),
+        firstName: values.firstName.trim(),
+        middleName: values.middleName?.trim() || '',
+        lastName: values.lastName.trim(),
         age: values.age ?? null,
         address: values.address?.trim() || '',
         offense: values.offense?.trim() || '',
@@ -169,6 +179,7 @@ export default function DashboardView() {
         convictionDate: values.convictionDate ? values.convictionDate.format('YYYY-MM-DD') : null,
         caseNumber: values.caseNumber?.trim() || '',
         dateOfOrder: values.dateOfOrder ? values.dateOfOrder.format('YYYY-MM-DD') : null,
+        dateOrderReceived: values.dateOrderReceived ? values.dateOrderReceived.format('YYYY-MM-DD') : null,
         supervisionPeriod: values.supervisionPeriod?.trim() || '',
         supervisionStartDate: values.supervisionStartDate ? values.supervisionStartDate.format('YYYY-MM-DD') : null,
         supervisionEndDate: values.supervisionEndDate ? values.supervisionEndDate.format('YYYY-MM-DD') : null,
@@ -193,7 +204,7 @@ export default function DashboardView() {
     setDeletingId(record.id);
     try {
       await ApiClient.delete(`/probationers/${record.id}`);
-      message.success(`Case for ${record.full_name} deleted.`);
+      message.success(`Case for ${composeName(record)} deleted.`);
       await loadDashboard();
     } catch (err) {
       setError(err.message);
@@ -215,7 +226,9 @@ export default function DashboardView() {
 
   const columns = [
     { title: 'Docket #', dataIndex: 'docket_number', key: 'docket_number' },
-    { title: 'Name', dataIndex: 'full_name', key: 'full_name' },
+    { title: 'Last Name', dataIndex: 'last_name', key: 'last_name' },
+    { title: 'First Name', dataIndex: 'first_name', key: 'first_name' },
+    { title: 'Middle Name', dataIndex: 'middle_name', key: 'middle_name', render: (v) => v || '—' },
     { title: 'Stage', dataIndex: 'stage', key: 'stage', render: (v) => <Tag color={STAGE_COLORS[v] || 'default'}>{v}</Tag> },
     { title: 'Status', dataIndex: 'status', key: 'status', render: (v) => <Tag color={STATUS_COLORS[v] || 'default'}>{v}</Tag> },
     { title: 'Assigned Officer', dataIndex: 'assigned_officer_name', key: 'assigned_officer_name' },
@@ -227,7 +240,7 @@ export default function DashboardView() {
           <Button size="small" icon={<EditOutlined />} onClick={() => openEditCase(record)}>Edit</Button>
           {isAdmin && (
             <Popconfirm
-              title={`Delete case for ${record.full_name}?`}
+              title={`Delete case for ${composeName(record)}?`}
               description="This cannot be undone."
               okText="Delete"
               okButtonProps={{ danger: true }}
@@ -265,6 +278,9 @@ export default function DashboardView() {
         .stage-tab.active .stage-tab-count {
           transform: scale(1.08);
         }
+        .case-modal-form .ant-form-item-label > label { font-weight: 600; }
+        .case-modal-form .section-title .ant-divider-inner-text { font-weight: 700; font-size: 16px; }
+        .case-modal-form .section-title.ant-divider-horizontal { margin: 4px 0 16px; }
       `}</style>
 
       <div
@@ -364,38 +380,74 @@ export default function DashboardView() {
         onOk={createCase}
         confirmLoading={creating}
         okText="Create Case"
+        width={760}
         styles={{ body: { maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 } }}
       >
-        <Form form={newCaseForm} layout="vertical">
-          <Form.Item label="Full Name" name="fullName" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="Alias" name="alias"><Input /></Form.Item>
-          <Form.Item label="Age" name="age"><InputNumber style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Birthdate" name="birthdate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Sex" name="sex">
-            <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
-          </Form.Item>
-          <Form.Item label="Marital Status" name="maritalStatus"><Input /></Form.Item>
-          <Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item>
-          <Form.Item label="Docket #" name="docketNumber" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item>
-          <Form.Item label="Address" name="address"><Input /></Form.Item>
-          <Form.Item label="Offense" name="offense"><Input /></Form.Item>
-          <Form.Item label="Offense Classification" name="offenseType">
-            <Select allowClear options={(enums.OFFENSE_TYPES || []).map((v) => ({ label: v, value: v }))} />
-          </Form.Item>
-          <Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item>
-          <Form.Item label="Judge" name="judge"><Input /></Form.Item>
-          <Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Date of Order" name="dateOfOrder"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0 (yrs-mos-days)" /></Form.Item>
-          <Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Remarks" name="remarks"><Input.TextArea rows={2} /></Form.Item>
-          {isAdmin && (
-            <Form.Item label="Assigned Officer" name="assignedOfficerId">
-              <Select options={officers.map((o) => ({ label: o.full_name, value: o.id }))} allowClear />
-            </Form.Item>
-          )}
+        <Form form={newCaseForm} className="case-modal-form" layout="vertical" size="large">
+          <Divider orientation="center" className="section-title">Identifying Data</Divider>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}><Form.Item label="Last Name" name="lastName" rules={[{ required: true }]}><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="First Name" name="firstName" rules={[{ required: true }]}><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Middle Name" name="middleName"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Alias" name="alias"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Birthdate" name="birthdate">
+                <DatePicker
+                  style={{ width: '100%' }}
+                  onChange={(d) => newCaseForm.setFieldValue('age', d ? dayjs().diff(d, 'year') : null)}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Age" name="age" tooltip="Auto-computed from birthdate">
+                <InputNumber style={{ width: '100%' }} disabled />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Sex" name="sex">
+                <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Marital Status" name="maritalStatus">
+                <Select allowClear options={CIVIL_STATUS_OPTIONS.map((v) => ({ label: v, value: v }))} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}><Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Address" name="address"><Input /></Form.Item></Col>
+          </Row>
+
+          <Divider orientation="center" className="section-title">Court &amp; Case Data</Divider>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}><Form.Item label="Docket #" name="docketNumber" rules={[{ required: true }]}><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Offense" name="offense"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Offense Classification" name="offenseType">
+                <Select allowClear options={(enums.OFFENSE_TYPES || []).map((v) => ({ label: v, value: v }))} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}><Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Judge" name="judge"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Date of Order" name="dateOfOrder" tooltip="Date the court issued the order"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Date of Order Received in Office" name="dateOrderReceived" tooltip="Date the order was received in this office"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            {isAdmin && (
+              <Col xs={24} sm={12}>
+                <Form.Item label="Assigned Officer" name="assignedOfficerId">
+                  <Select options={officers.map((o) => ({ label: o.full_name, value: o.id }))} allowClear />
+                </Form.Item>
+              </Col>
+            )}
+          </Row>
+
+          <Divider orientation="center" className="section-title">Supervision</Divider>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}><Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0 (yrs-mos-days)" /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24}><Form.Item label="Remarks" name="remarks"><Input.TextArea rows={2} /></Form.Item></Col>
+          </Row>
           {newCaseError && <Alert type="error" message={newCaseError} showIcon />}
         </Form>
       </Modal>
@@ -407,33 +459,67 @@ export default function DashboardView() {
         onOk={saveEditCase}
         confirmLoading={saving}
         okText="Save"
+        width={760}
         styles={{ body: { maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 } }}
       >
-        <Form form={editForm} layout="vertical">
-          <Form.Item label="Full Name" name="fullName" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="Alias" name="alias"><Input /></Form.Item>
-          <Form.Item label="Age" name="age"><InputNumber style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Birthdate" name="birthdate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Sex" name="sex">
-            <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
-          </Form.Item>
-          <Form.Item label="Marital Status" name="maritalStatus"><Input /></Form.Item>
-          <Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item>
-          <Form.Item label="Docket #" name="docketNumber"><Input disabled /></Form.Item>
-          <Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item>
-          <Form.Item label="Address" name="address"><Input /></Form.Item>
-          <Form.Item label="Offense" name="offense"><Input /></Form.Item>
-          <Form.Item label="Offense Classification" name="offenseType">
-            <Select allowClear options={(enums.OFFENSE_TYPES || []).map((v) => ({ label: v, value: v }))} />
-          </Form.Item>
-          <Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item>
-          <Form.Item label="Judge" name="judge"><Input /></Form.Item>
-          <Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Date of Order" name="dateOfOrder"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0 (yrs-mos-days)" /></Form.Item>
-          <Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-          <Form.Item label="Remarks" name="remarks"><Input.TextArea rows={2} /></Form.Item>
+        <Form form={editForm} className="case-modal-form" layout="vertical" size="large">
+          <Divider orientation="center" className="section-title">Identifying Data</Divider>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}><Form.Item label="Last Name" name="lastName" rules={[{ required: true }]}><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="First Name" name="firstName" rules={[{ required: true }]}><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Middle Name" name="middleName"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Alias" name="alias"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Birthdate" name="birthdate">
+                <DatePicker
+                  style={{ width: '100%' }}
+                  onChange={(d) => editForm.setFieldValue('age', d ? dayjs().diff(d, 'year') : null)}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Age" name="age" tooltip="Auto-computed from birthdate">
+                <InputNumber style={{ width: '100%' }} disabled />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Sex" name="sex">
+                <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Marital Status" name="maritalStatus">
+                <Select allowClear options={CIVIL_STATUS_OPTIONS.map((v) => ({ label: v, value: v }))} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}><Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Address" name="address"><Input /></Form.Item></Col>
+          </Row>
+
+          <Divider orientation="center" className="section-title">Court &amp; Case Data</Divider>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}><Form.Item label="Docket #" name="docketNumber"><Input disabled /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Offense" name="offense"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}>
+              <Form.Item label="Offense Classification" name="offenseType">
+                <Select allowClear options={(enums.OFFENSE_TYPES || []).map((v) => ({ label: v, value: v }))} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12}><Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Judge" name="judge"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Date of Order" name="dateOfOrder" tooltip="Date the court issued the order"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Date of Order Received in Office" name="dateOrderReceived" tooltip="Date the order was received in this office"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+          </Row>
+
+          <Divider orientation="center" className="section-title">Supervision</Divider>
+          <Row gutter={[16, 0]}>
+            <Col xs={24} sm={12}><Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0 (yrs-mos-days)" /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={24}><Form.Item label="Remarks" name="remarks"><Input.TextArea rows={2} /></Form.Item></Col>
+          </Row>
           {editError && <Alert type="error" message={editError} showIcon />}
         </Form>
       </Modal>

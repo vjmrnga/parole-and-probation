@@ -128,7 +128,11 @@ export default function SettingsView() {
 
   return (
     <div>
-      <Button type="link" style={{ paddingLeft: 0 }} onClick={back}>&larr; Back</Button>
+      {/* Fresh install (no mode yet) lands here with nowhere sensible to go
+          back to — hide Back until a mode is set. */}
+      {settings.mode && (
+        <Button type="link" style={{ paddingLeft: 0 }} onClick={back}>&larr; Back</Button>
+      )}
       <Title level={3}>Settings</Title>
       <p>
         Mode: <Text strong>{settings.mode || '(not set)'}</Text>{' '}

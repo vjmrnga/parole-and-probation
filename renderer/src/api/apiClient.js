@@ -88,9 +88,16 @@ async function login(username, password, { force = false } = {}) {
   return data.user;
 }
 
-async function bootstrapAdmin(username, password, fullName) {
+async function bootstrapAdmin(username, password, { firstName, middleName, lastName }) {
   const deviceName = await window.api.getDeviceName();
-  const data = await request('POST', '/auth/bootstrap-admin', { username, password, fullName, deviceName });
+  const data = await request('POST', '/auth/bootstrap-admin', {
+    username,
+    password,
+    firstName,
+    middleName,
+    lastName,
+    deviceName,
+  });
   setSession(data.token, data.user);
   return data.user;
 }

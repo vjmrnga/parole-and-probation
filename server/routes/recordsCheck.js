@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
 
 function safeSeg(s) {
   return String(s).replace(/[\\/:*?"<>|]+/g, '-').trim();
@@ -19,8 +20,8 @@ function buildRecordsCheckRouter(settingsStore, recordsCheckDir) {
     try {
       const [rows] = await db.getPool().query(
         `SELECT r.id, r.probationer_id, r.recipient, r.date_folder, r.filename, r.generated_at,
-                p.full_name AS probationer_name, p.docket_number,
-                u.full_name AS generated_by_name
+                ${probationerNameSql('p')} AS probationer_name, p.docket_number,
+                ${userNameSql('u')} AS generated_by_name
          FROM records_check_files r
          JOIN probationers p ON p.id = r.probationer_id
          JOIN users u ON u.id = r.generated_by

@@ -2,7 +2,8 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const db = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { ROLES } = require('../../shared/statusEnums');
+const { ROLES, USER_TITLES } = require('../../shared/statusEnums');
+const { userNameSql } = require('../../shared/nameUtils');
 
 function buildUsersRouter(settingsStore) {
   const router = express.Router();
@@ -20,7 +21,10 @@ function buildUsersRouter(settingsStore) {
       const [rows] = await db
         .getPool()
         .query(
-          `SELECT id, username, full_name, role, is_active FROM users ${includeInactive ? '' : 'WHERE is_active = 1'} ORDER BY full_name`
+          `SELECT id, username, first_name, middle_name, last_name, title,
+                  ${userNameSql('users')} AS full_name, role, is_active
+           FROM users ${includeInactive ? '' : 'WHERE is_active = 1'}
+           ORDER BY last_name, first_name`
         );
       res.json(isAdmin ? rows : rows.map(({ id, full_name, role, is_active }) => ({ id, full_name, role, is_active })));
     } catch (err) {
@@ -30,22 +34,31 @@ function buildUsersRouter(settingsStore) {
 
   router.post('/', requireRole('admin'), async (req, res, next) => {
     try {
-      const { username, password, fullName, role } = req.body || {};
-      if (!username || !password || !fullName || !role) {
-        return res.status(400).json({ error: 'username, password, fullName, and role are required' });
+      const { username, password, firstName, middleName, lastName, title, role } = req.body || {};
+      if (!username || !password || !firstName || !lastName || !role) {
+        return res.status(400).json({ error: 'username, password, firstName, lastName, and role are required' });
       }
       if (!ROLES.includes(role)) return res.status(400).json({ error: `role must be one of: ${ROLES.join(', ')}` });
+      if (title && !USER_TITLES.includes(title)) return res.status(400).json({ error: `title must be one of: ${USER_TITLES.join(', ')}` });
 
       const passwordHash = await bcrypt.hash(password, 12);
       const [result] = await db
         .getPool()
-        .query('INSERT INTO users (username, password_hash, full_name, role, is_active) VALUES (?, ?, ?, ?, 1)', [
-          username,
-          passwordHash,
-          fullName,
-          role,
-        ]);
-      res.status(201).json({ id: result.insertId, username, full_name: fullName, role, is_active: 1 });
+        .query(
+          'INSERT INTO users (username, password_hash, first_name, middle_name, last_name, title, role, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+          [username, passwordHash, firstName, middleName || null, lastName, title || null, role]
+        );
+      res.status(201).json({
+        id: result.insertId,
+        username,
+        first_name: firstName,
+        middle_name: middleName || null,
+        last_name: lastName,
+        title: title || null,
+        full_name: [firstName, middleName, lastName].map((s) => (s || '').trim()).filter(Boolean).join(' '),
+        role,
+        is_active: 1,
+      });
     } catch (err) {
       if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Username already taken' });
       next(err);
@@ -54,8 +67,9 @@ function buildUsersRouter(settingsStore) {
 
   router.patch('/:id', requireRole('admin'), async (req, res, next) => {
     try {
-      const { username, fullName, role, password } = req.body || {};
+      const { username, firstName, middleName, lastName, title, role, password } = req.body || {};
       if (role && !ROLES.includes(role)) return res.status(400).json({ error: `role must be one of: ${ROLES.join(', ')}` });
+      if (title && !USER_TITLES.includes(title)) return res.status(400).json({ error: `title must be one of: ${USER_TITLES.join(', ')}` });
       if (password && password.length < 6) return res.status(400).json({ error: 'password must be at least 6 characters' });
 
       const fields = [];
@@ -64,9 +78,21 @@ function buildUsersRouter(settingsStore) {
         fields.push('username = ?');
         values.push(username);
       }
-      if (fullName) {
-        fields.push('full_name = ?');
-        values.push(fullName);
+      if (firstName !== undefined) {
+        fields.push('first_name = ?');
+        values.push(firstName);
+      }
+      if (middleName !== undefined) {
+        fields.push('middle_name = ?');
+        values.push(middleName || null);
+      }
+      if (lastName !== undefined) {
+        fields.push('last_name = ?');
+        values.push(lastName);
+      }
+      if (title !== undefined) {
+        fields.push('title = ?');
+        values.push(title || null);
       }
       if (role) {
         fields.push('role = ?');

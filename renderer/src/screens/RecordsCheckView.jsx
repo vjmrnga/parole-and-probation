@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, Popconfirm, Space, Table, Tabs, Typography, message } from 'antd';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
-import { splitName } from '../utils/splitName.js';
+import { composeName } from '../utils/composeName.js';
 
 const { Title, Text } = Typography;
 
@@ -16,11 +16,13 @@ const { Title, Text } = Typography;
 function buildRec(p) {
   const profile = p.psir_profile || {};
   const f = profile.fields || {};
-  const name = (f.lastName || f.firstName || f.middleName)
-    ? { lastName: f.lastName || '', firstName: f.firstName || '', middleName: f.middleName || '' }
-    : splitName(p.full_name);
+  // Prefer the stored name parts; fall back to the psir_profile snapshot only
+  // when the columns are somehow blank (e.g. an old snapshot edited by hand).
+  const name = (p.last_name || p.first_name || p.middle_name)
+    ? { lastName: p.last_name || '', firstName: p.first_name || '', middleName: p.middle_name || '' }
+    : { lastName: f.lastName || '', firstName: f.firstName || '', middleName: f.middleName || '' };
   return {
-    NAME: p.full_name || '',
+    NAME: composeName(p),
     'TRUE NAME': f.trueName || '',
     ALIAS: p.alias || '',
     SEX: p.sex || '',
@@ -146,7 +148,7 @@ export default function RecordsCheckView() {
     setLoading(true);
     try {
       const probationers = await ApiClient.get('/probationers');
-      const list = probationers.map((p) => ({ id: String(p.id), name: p.full_name }));
+      const list = probationers.map((p) => ({ id: String(p.id), name: composeName(p) }));
       const rows = {};
       probationers.forEach((p) => { rows[String(p.id)] = buildRec(p); });
       setCount(list.length);

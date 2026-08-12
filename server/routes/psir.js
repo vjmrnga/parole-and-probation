@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
 
 const ORG_SETTINGS_FIELDS = [
   'br_region', 'br_region2', 'br_office', 'br_addr', 'br_tel', 'br_email', 'br_web',
@@ -76,8 +77,8 @@ function buildPsirRouter(settingsStore, psirDir) {
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const [rows] = await db.getPool().query(
         `SELECT r.id, r.probationer_id, r.recommendation_type, r.filename, r.generated_at,
-                p.full_name AS probationer_name, p.docket_number,
-                u.full_name AS generated_by_name
+                ${probationerNameSql('p')} AS probationer_name, p.docket_number,
+                ${userNameSql('u')} AS generated_by_name
          FROM psir_reports r
          JOIN probationers p ON p.id = r.probationer_id
          JOIN users u ON u.id = r.generated_by

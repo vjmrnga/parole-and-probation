@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const db = require('../db');
+const { userNameSql } = require('../../shared/nameUtils');
 
 function getJwtSecret(settingsStore) {
   let secret = settingsStore.get('jwtSecret');
@@ -41,7 +42,9 @@ function authenticate(settingsStore) {
       const [rows] = await db
         .getPool()
         .query(
-          'SELECT id, username, full_name, role, is_active, active_session_id FROM users WHERE id = ?',
+          `SELECT id, username, first_name, middle_name, last_name, title,
+                  ${userNameSql('users')} AS full_name, role, is_active, active_session_id
+           FROM users WHERE id = ?`,
           [payload.sub]
         );
       const user = rows[0];

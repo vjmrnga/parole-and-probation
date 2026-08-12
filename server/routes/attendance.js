@@ -5,6 +5,7 @@ const dayjs = require('dayjs');
 const db = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { firstWeekGraceEnd } = require('../../shared/attendanceGracePeriod');
+const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
 
 async function loadProbationer(id) {
   const [rows] = await db.getPool().query('SELECT * FROM probationers WHERE id = ?', [id]);
@@ -103,14 +104,14 @@ function buildAttendanceEntryRouter(settingsStore, signaturesDir) {
       const graceEnd = firstWeekGraceEnd(month);
 
       const [rows] = await db.getPool().query(
-        `SELECT p.id AS probationer_id, p.full_name, p.docket_number,
-                p.assigned_officer_id, u.full_name AS assigned_officer_name,
+        `SELECT p.id AS probationer_id, ${probationerNameSql('p')} AS full_name, p.docket_number,
+                p.assigned_officer_id, ${userNameSql('u')} AS assigned_officer_name,
                 a.id AS log_id, a.log_date
          FROM probationers p
          JOIN users u ON u.id = p.assigned_officer_id
          LEFT JOIN attendance_log a
            ON a.probationer_id = p.id AND a.log_date BETWEEN ? AND ?
-         ORDER BY p.full_name, a.log_date`,
+         ORDER BY p.last_name, p.first_name, a.log_date`,
         [monthStart, monthEnd]
       );
 

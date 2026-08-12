@@ -7,6 +7,7 @@ import { ApiClient } from '../api/apiClient.js';
 import SignatureCapture from '../components/SignatureCapture.jsx';
 import PhotoCapture from '../components/PhotoCapture.jsx';
 import AttendanceOverviewTable from '../components/AttendanceOverviewTable.jsx';
+import { composeName } from '../utils/composeName.js';
 
 const { Title, Paragraph } = Typography;
 
@@ -162,7 +163,7 @@ export default function SignatureAttendanceView() {
                         onChange={setTargetId}
                         showSearch
                         optionFilterProp="label"
-                        options={probationers.map((p) => ({ label: `${p.full_name} (${p.docket_number})`, value: p.id }))}
+                        options={probationers.map((p) => ({ label: `${composeName(p)} (${p.docket_number})`, value: p.id }))}
                       />
                     </ConfigProvider>
                   </div>
@@ -203,7 +204,7 @@ export default function SignatureAttendanceView() {
                 <SignatureCapture
                   ref={signatureRef}
                   existingSignature={existingSignature}
-                  signerName={selectedProbationer?.full_name}
+                  signerName={selectedProbationer ? composeName(selectedProbationer) : undefined}
                   reason="Reference signature on file"
                   extraActions={(
                     <Popconfirm title="Are you sure to save signature?" onConfirm={saveSignature} disabled={!targetId}>
@@ -270,7 +271,7 @@ export default function SignatureAttendanceView() {
         <div style={{ marginBottom: 4 }}>Probationer&apos;s Signature (this visit)</div>
         <SignatureCapture
           ref={visitSignatureRef}
-          signerName={selectedProbationer?.full_name}
+          signerName={selectedProbationer ? composeName(selectedProbationer) : undefined}
           reason="Attendance visit signature"
         />
       </Modal>

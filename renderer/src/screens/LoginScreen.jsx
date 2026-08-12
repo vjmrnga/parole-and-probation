@@ -6,7 +6,7 @@ import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
 
 export default function LoginScreen() {
-  const { enterApp, setScreen } = useApp();
+  const { enterApp } = useApp();
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   // Held only long enough to retry the login with force:true if the user
@@ -52,7 +52,6 @@ export default function LoginScreen() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <Card style={{ width: 380, maxWidth: '100%' }}>
-        <Button type="link" style={{ paddingLeft: 0 }} onClick={() => setScreen('chooseMode')}>&larr; Back</Button>
         <BrandHeader title="Sign In" />
         <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
           <Form.Item label="Username" name="username" rules={[{ required: true, message: 'Username is required' }]}>

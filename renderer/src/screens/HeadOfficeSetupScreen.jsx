@@ -57,7 +57,11 @@ export default function HeadOfficeSetupScreen() {
   async function createAdmin(values) {
     setCreatingAdmin(true);
     try {
-      await ApiClient.bootstrapAdmin(values.username.trim(), values.password, values.fullName.trim());
+      await ApiClient.bootstrapAdmin(values.username.trim(), values.password, {
+        firstName: values.firstName.trim(),
+        middleName: values.middleName?.trim() || null,
+        lastName: values.lastName.trim(),
+      });
       ApiClient.logout(); // send them through the normal login screen rather than silently staying signed in
       setCurrent(2);
     } catch (err) {
@@ -109,7 +113,9 @@ export default function HeadOfficeSetupScreen() {
             />
             <Form form={adminForm} layout="vertical" onFinish={createAdmin}>
               <Form.Item label="Username" name="username" rules={[{ required: true }]}><Input /></Form.Item>
-              <Form.Item label="Full Name" name="fullName" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item label="First Name" name="firstName" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item label="Middle Name" name="middleName"><Input /></Form.Item>
+              <Form.Item label="Last Name" name="lastName" rules={[{ required: true }]}><Input /></Form.Item>
               <Form.Item label="Password" name="password" rules={[{ required: true }]}><Input.Password /></Form.Item>
               <Button type="primary" htmlType="submit" loading={creatingAdmin}>Create Admin Account</Button>
             </Form>

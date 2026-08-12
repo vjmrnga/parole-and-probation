@@ -4,6 +4,26 @@ const path = require('path');
 const db = require('../db');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { STAGES, STATUSES } = require('../../shared/statusEnums');
+const { splitName, userNameSql } = require('../../shared/nameUtils');
+
+// Resolves the incoming name into first/middle/last parts. The interactive
+// forms send explicit firstName/middleName/lastName; imports and legacy callers
+// send a single fullName, which we best-effort split (editable afterward).
+// Returns null when neither an explicit lastName nor a fullName is provided.
+function resolveNameParts(body) {
+  if (body.firstName !== undefined || body.lastName !== undefined || body.middleName !== undefined) {
+    return {
+      firstName: (body.firstName || '').trim(),
+      middleName: (body.middleName || '').trim(),
+      lastName: (body.lastName || '').trim(),
+    };
+  }
+  if (body.fullName) {
+    const { firstName, middleName, lastName } = splitName(body.fullName);
+    return { firstName, middleName, lastName };
+  }
+  return null;
+}
 
 function isAssignedOrAdmin(req, probationer) {
   return req.user.role === 'admin' || req.user.id === probationer.assigned_officer_id;
@@ -45,17 +65,18 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
         values.push(req.query.assignedOfficerId);
       }
       if (req.query.q) {
-        // Unqualified column names here are ambiguous once joined against
-        // users — both tables have a full_name column, and MySQL refuses to
-        // resolve it (ER_NON_UNIQ_ERROR) rather than guessing which one.
-        clauses.push('(p.full_name LIKE ? OR p.docket_number LIKE ?)');
+        // Match against the composed name so a search of "first last" still
+        // hits even though the name is stored as separate columns. Qualified
+        // with p. since users is joined below (its full_name would otherwise
+        // be ambiguous — ER_NON_UNIQ_ERROR).
+        clauses.push("(CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) LIKE ? OR p.docket_number LIKE ?)");
         values.push(`%${req.query.q}%`, `%${req.query.q}%`);
       }
       const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
       const [rows] = await db
         .getPool()
         .query(
-          `SELECT p.*, u.full_name AS assigned_officer_name
+          `SELECT p.*, ${userNameSql('u')} AS assigned_officer_name
            FROM probationers p JOIN users u ON u.id = p.assigned_officer_id
            ${where} ORDER BY p.created_at DESC`,
           values
@@ -79,11 +100,14 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
   router.post('/', async (req, res, next) => {
     try {
       const {
-        fullName, age, address, docketNumber, offense, offenseType, courtBranch, judge, convictionDate,
-        caseNumber, dateOfOrder, supervisionPeriod, supervisionStartDate, supervisionEndDate,
+        age, address, docketNumber, offense, offenseType, courtBranch, judge, convictionDate,
+        caseNumber, dateOfOrder, dateOrderReceived, supervisionPeriod, supervisionStartDate, supervisionEndDate,
         alias, birthdate, sex, maritalStatus, contactNumber, remarks,
       } = req.body || {};
-      if (!fullName || !docketNumber) return res.status(400).json({ error: 'fullName and docketNumber are required' });
+      const name = resolveNameParts(req.body || {});
+      if (!name || !name.lastName || !docketNumber) {
+        return res.status(400).json({ error: 'lastName (or fullName) and docketNumber are required' });
+      }
 
       let assignedOfficerId = req.user.id;
       if (req.user.role === 'admin' && req.body.assignedOfficerId) {
@@ -92,13 +116,13 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
 
       const [result] = await db.getPool().query(
         `INSERT INTO probationers
-          (full_name, age, address, docket_number, offense, offense_type, court_branch, judge, conviction_date, assigned_officer_id,
-           case_number, date_of_order, supervision_period, supervision_start_date, supervision_end_date,
+          (first_name, middle_name, last_name, age, address, docket_number, offense, offense_type, court_branch, judge, conviction_date, assigned_officer_id,
+           case_number, date_of_order, date_order_received, supervision_period, supervision_start_date, supervision_end_date,
            alias, birthdate, sex, marital_status, contact_number, remarks)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          fullName, age || null, address || null, docketNumber, offense || null, offenseType || null, courtBranch || null, judge || null, convictionDate || null, assignedOfficerId,
-          caseNumber || null, dateOfOrder || null, supervisionPeriod || null, supervisionStartDate || null, supervisionEndDate || null,
+          name.firstName || null, name.middleName || null, name.lastName, age || null, address || null, docketNumber, offense || null, offenseType || null, courtBranch || null, judge || null, convictionDate || null, assignedOfficerId,
+          caseNumber || null, dateOfOrder || null, dateOrderReceived || null, supervisionPeriod || null, supervisionStartDate || null, supervisionEndDate || null,
           alias || null, birthdate || null, sex || null, maritalStatus || null, contactNumber || null, remarks || null,
         ]
       );
@@ -117,14 +141,16 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
       if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
 
       const editable = [
-        'full_name', 'age', 'address', 'offense', 'offense_type', 'court_branch', 'judge', 'conviction_date',
-        'case_number', 'date_of_order', 'supervision_period', 'supervision_start_date', 'supervision_end_date',
+        'first_name', 'middle_name', 'last_name', 'age', 'address', 'offense', 'offense_type', 'court_branch', 'judge', 'conviction_date',
+        'case_number', 'date_of_order', 'date_order_received', 'supervision_period', 'supervision_start_date', 'supervision_end_date',
         'alias', 'birthdate', 'sex', 'marital_status', 'contact_number', 'remarks',
       ];
       const fieldMap = {
-        fullName: 'full_name', age: 'age', address: 'address', offense: 'offense', offenseType: 'offense_type',
+        firstName: 'first_name', middleName: 'middle_name', lastName: 'last_name',
+        age: 'age', address: 'address', offense: 'offense', offenseType: 'offense_type',
         courtBranch: 'court_branch', judge: 'judge', convictionDate: 'conviction_date',
-        caseNumber: 'case_number', dateOfOrder: 'date_of_order', supervisionPeriod: 'supervision_period',
+        caseNumber: 'case_number', dateOfOrder: 'date_of_order', dateOrderReceived: 'date_order_received',
+        supervisionPeriod: 'supervision_period',
         supervisionStartDate: 'supervision_start_date', supervisionEndDate: 'supervision_end_date',
         alias: 'alias', birthdate: 'birthdate', sex: 'sex', maritalStatus: 'marital_status',
         contactNumber: 'contact_number', remarks: 'remarks',
@@ -137,12 +163,25 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
           values.push(req.body[bodyKey]);
         }
       }
+
+      // The docket number is the unique case identifier (docket_number is
+      // NOT NULL UNIQUE), so unlike the rest of Case Information it's admin-only
+      // to change and must stay non-empty.
+      if (req.body.docketNumber !== undefined) {
+        if (req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can change the docket number' });
+        const docket = String(req.body.docketNumber).trim();
+        if (!docket) return res.status(400).json({ error: 'Docket number cannot be empty' });
+        fields.push('docket_number = ?');
+        values.push(docket);
+      }
+
       if (fields.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
       values.push(req.params.id);
       await db.getPool().query(`UPDATE probationers SET ${fields.join(', ')} WHERE id = ?`, values);
       res.json(await loadProbationer(req.params.id));
     } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'Docket number already exists' });
       next(err);
     }
   });
@@ -337,6 +376,25 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
     }
   });
 
+  // Clears the reference photo — removes the file from disk (if still there)
+  // and nulls the column. Idempotent: calling it with no photo on file is a
+  // no-op success so the client doesn't need to special-case that state.
+  router.delete('/:id/photo', async (req, res, next) => {
+    try {
+      const probationer = await loadProbationer(req.params.id);
+      if (!probationer) return res.status(404).json({ error: 'Not found' });
+      if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
+
+      if (probationer.photo_path && fs.existsSync(probationer.photo_path)) {
+        fs.unlinkSync(probationer.photo_path);
+      }
+      await db.getPool().query('UPDATE probationers SET photo_path = NULL WHERE id = ?', [req.params.id]);
+      res.json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // Merges (not replaces) into probationers.psir_profile so edits made here
   // on the Case Detail screen don't clobber whatever the PSIR Generator
   // itself last wrote (media images, report-only fields, etc.) — see
@@ -366,7 +424,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
   router.get('/:id/history', async (req, res, next) => {
     try {
       const [rows] = await db.getPool().query(
-        `SELECT h.*, u.full_name AS changed_by_name
+        `SELECT h.*, ${userNameSql('u')} AS changed_by_name
          FROM status_history h JOIN users u ON u.id = h.changed_by
          WHERE h.probationer_id = ? ORDER BY h.changed_at DESC`,
         [req.params.id]

@@ -1,6 +1,7 @@
 // Builds the DDL from shared/statusEnums.js so the STAGE/STATUS ENUM columns
 // can never drift from the fixed vocab used everywhere else in the code.
-const { STAGES, STATUSES, ROLES, OFFENSE_TYPES, HISTORY_FIELDS } = require('../../shared/statusEnums');
+const { STAGES, STATUSES, ROLES, USER_TITLES, OFFENSE_TYPES, HISTORY_FIELDS } = require('../../shared/statusEnums');
+const { splitName } = require('../../shared/nameUtils');
 
 function sqlEnum(values) {
   return `ENUM(${values.map((v) => `'${v.replace(/'/g, "''")}'`).join(', ')})`;
@@ -10,8 +11,19 @@ function sqlEnum(values) {
 // covers fresh installs, but existing databases need these added explicitly
 // (see addMissingProbationerColumns).
 const NEW_PROBATIONER_COLUMNS = [
+  // Name is stored as three normalized parts (replaced the old single
+  // full_name column — see the backfill + DROP in runMigration below). Added
+  // as NULL for existing DBs since ALTER-adding to a populated table can't be
+  // NOT NULL; the API/UI enforce first+last requiredness (same convention the
+  // old full_name used). Fresh installs get NOT NULL in CREATE TABLE below.
+  { name: 'first_name', ddl: 'VARCHAR(100) NULL' },
+  { name: 'middle_name', ddl: 'VARCHAR(100) NULL' },
+  { name: 'last_name', ddl: 'VARCHAR(100) NULL' },
   { name: 'case_number', ddl: 'VARCHAR(150) NULL' },
   { name: 'date_of_order', ddl: 'DATE NULL' },
+  // Date the court order was actually received in the office (distinct from
+  // date_of_order, which is when the court issued it).
+  { name: 'date_order_received', ddl: 'DATE NULL' },
   { name: 'supervision_period', ddl: 'VARCHAR(20) NULL' },
   { name: 'supervision_start_date', ddl: 'DATE NULL' },
   { name: 'supervision_end_date', ddl: 'DATE NULL' },
@@ -49,6 +61,17 @@ const NEW_USER_COLUMNS = [
   { name: 'active_session_id', ddl: 'VARCHAR(64) NULL' },
   { name: 'active_session_device', ddl: 'VARCHAR(150) NULL' },
   { name: 'active_session_started_at', ddl: 'TIMESTAMP NULL' },
+  // Name is stored as three normalized parts (replaced the old single
+  // full_name column — see migrateUserFullNameToParts below), same convention
+  // as probationers. Added NULL for existing DBs since ALTER-adding to a
+  // populated table can't be NOT NULL; the API/UI enforce first+last
+  // requiredness. Fresh installs get NOT NULL in CREATE TABLE below.
+  { name: 'first_name', ddl: 'VARCHAR(100) NULL' },
+  { name: 'middle_name', ddl: 'VARCHAR(100) NULL' },
+  { name: 'last_name', ddl: 'VARCHAR(100) NULL' },
+  // Job/rank title (PPO1, SrPPO, …) — one of shared/statusEnums.js's
+  // USER_TITLES. Optional (the bootstrap admin may have none).
+  { name: 'title', ddl: `${sqlEnum(USER_TITLES)} NULL` },
 ];
 
 // Same rollforward pattern as NEW_PROBATIONER_COLUMNS above, for
@@ -87,7 +110,10 @@ function buildSchemaStatements() {
       id            INT AUTO_INCREMENT PRIMARY KEY,
       username      VARCHAR(50)  NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
-      full_name     VARCHAR(150) NOT NULL,
+      first_name    VARCHAR(100) NOT NULL,
+      middle_name   VARCHAR(100) NULL,
+      last_name     VARCHAR(100) NOT NULL,
+      title         ${sqlEnum(USER_TITLES)} NULL,
       role          ${sqlEnum(ROLES)} NOT NULL DEFAULT 'officer',
       is_active     TINYINT(1) NOT NULL DEFAULT 1,
       active_session_id         VARCHAR(64) NULL,
@@ -99,7 +125,9 @@ function buildSchemaStatements() {
 
     `CREATE TABLE IF NOT EXISTS probationers (
       id                  INT AUTO_INCREMENT PRIMARY KEY,
-      full_name           VARCHAR(200) NOT NULL,
+      first_name          VARCHAR(100) NOT NULL,
+      middle_name         VARCHAR(100) NULL,
+      last_name           VARCHAR(100) NOT NULL,
       age                 INT NULL,
       address             VARCHAR(255) NULL,
       docket_number       VARCHAR(100) NOT NULL UNIQUE,
@@ -115,6 +143,7 @@ function buildSchemaStatements() {
       photo_path          VARCHAR(500) NULL,
       case_number             VARCHAR(150) NULL,
       date_of_order           DATE NULL,
+      date_order_received     DATE NULL,
       supervision_period      VARCHAR(20) NULL,
       supervision_start_date  DATE NULL,
       supervision_end_date    DATE NULL,
@@ -257,6 +286,67 @@ function buildSchemaStatements() {
   ];
 }
 
+// One-time transition off the old single full_name column: split each existing
+// value into the first/middle/last parts, then drop full_name. Idempotent —
+// guarded on the column still existing, so re-runs (and fresh installs, which
+// never had full_name) are no-ops.
+async function migrateFullNameToParts(pool) {
+  const [cols] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'probationers' AND COLUMN_NAME = 'full_name'`
+  );
+  if (cols.length === 0) return; // already migrated (or fresh install)
+
+  const [rows] = await pool.query(
+    `SELECT id, full_name FROM probationers WHERE last_name IS NULL OR last_name = ''`
+  );
+  for (const row of rows) {
+    const { lastName, firstName, middleName } = splitName(row.full_name);
+    await pool.query(
+      'UPDATE probationers SET first_name = ?, middle_name = ?, last_name = ? WHERE id = ?',
+      [firstName, middleName || null, lastName, row.id]
+    );
+  }
+  await pool.query('ALTER TABLE probationers DROP COLUMN full_name');
+}
+
+// Same one-time transition as migrateFullNameToParts above, for the users
+// table: split each existing full_name into first/middle/last, then drop the
+// column. Idempotent — guarded on full_name still existing, so re-runs and
+// fresh installs (which never had it) are no-ops.
+async function migrateUserFullNameToParts(pool) {
+  const [cols] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'full_name'`
+  );
+  if (cols.length === 0) return; // already migrated (or fresh install)
+
+  const [rows] = await pool.query(
+    `SELECT id, full_name FROM users WHERE last_name IS NULL OR last_name = ''`
+  );
+  for (const row of rows) {
+    // User names were stored in natural "First Middle Last" order, so read the
+    // last token as the surname and the first as the given name.
+    const parts = String(row.full_name || '').trim().split(/\s+/).filter(Boolean);
+    let firstName = '';
+    let middleName = '';
+    let lastName = '';
+    if (parts.length === 1) {
+      firstName = parts[0];
+      lastName = parts[0];
+    } else if (parts.length >= 2) {
+      firstName = parts[0];
+      lastName = parts[parts.length - 1];
+      middleName = parts.slice(1, -1).join(' ');
+    }
+    await pool.query(
+      'UPDATE users SET first_name = ?, middle_name = ?, last_name = ? WHERE id = ?',
+      [firstName, middleName || null, lastName, row.id]
+    );
+  }
+  await pool.query('ALTER TABLE users DROP COLUMN full_name');
+}
+
 async function runMigration(pool) {
   const statements = buildSchemaStatements();
   for (const sql of statements) {
@@ -265,6 +355,8 @@ async function runMigration(pool) {
   await addMissingColumns(pool, 'probationers', NEW_PROBATIONER_COLUMNS);
   await addMissingColumns(pool, 'attendance_log', NEW_ATTENDANCE_LOG_COLUMNS);
   await addMissingColumns(pool, 'users', NEW_USER_COLUMNS);
+  await migrateFullNameToParts(pool);
+  await migrateUserFullNameToParts(pool);
 }
 
 module.exports = { buildSchemaStatements, runMigration };

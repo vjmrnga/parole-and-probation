@@ -8,7 +8,9 @@ const ExcelJS = require('exceljs');
 const COLUMNS = [
   { header: 'Docket #', key: 'docket_number', width: 16 },
   { header: 'Case Number', key: 'case_number', width: 20 },
-  { header: 'Name', key: 'full_name', width: 26 },
+  { header: 'Last Name', key: 'last_name', width: 20 },
+  { header: 'First Name', key: 'first_name', width: 20 },
+  { header: 'Middle Name', key: 'middle_name', width: 20 },
   { header: 'Alias', key: 'alias', width: 16 },
   { header: 'Age', key: 'age', width: 8 },
   { header: 'Birthdate', key: 'birthdate', width: 16 },

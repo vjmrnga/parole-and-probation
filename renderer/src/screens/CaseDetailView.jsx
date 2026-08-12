@@ -2,17 +2,19 @@ import { useEffect, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   AutoComplete, Avatar, Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber, message,
-  Radio, Row, Select, Space, Table, Tabs, Tag, Tooltip, Typography,
+  Modal, Popconfirm, Radio, Row, Select, Space, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
-import { UserOutlined } from '@ant-design/icons';
+import { CameraOutlined, DeleteOutlined, UserOutlined } from '@ant-design/icons';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
 import { STAGE_COLORS, STATUS_COLORS } from '../constants/statusColors.js';
 import GeneratePsirModal from '../components/GeneratePsirModal.jsx';
 import GenerateFinalReportModal from '../components/GenerateFinalReportModal.jsx';
+import PhotoCapture from '../components/PhotoCapture.jsx';
 import DocumentChecklist from '../components/DocumentChecklist.jsx';
+import { composeName } from '../utils/composeName.js';
 import {
-  GENDER_PREF_OPTIONS, LAW_TYPES, NATIONALITY_OPTIONS, PRIOR_RECORD_AGENCIES,
+  CIVIL_STATUS_OPTIONS, GENDER_PREF_OPTIONS, LAW_TYPES, NATIONALITY_OPTIONS, PRIOR_RECORD_AGENCIES,
   RELIGION_OPTIONS, SOCIO_ECONOMIC_GROUPS,
 } from '../constants/psirOptions.js';
 
@@ -48,7 +50,6 @@ export default function CaseDetailView() {
   const [attendance, setAttendance] = useState([]);
 
   const [caseForm] = Form.useForm();
-  const [psirForm] = Form.useForm();
   const [stage, setStage] = useState();
   const [status, setStatus] = useState();
   const [reassignTo, setReassignTo] = useState();
@@ -57,11 +58,11 @@ export default function CaseDetailView() {
   const [saving, setSaving] = useState(false);
   const [savingStage, setSavingStage] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
-  const [savingReassign, setSavingReassign] = useState(false);
-  const [savingPsirProfile, setSavingPsirProfile] = useState(false);
   const [psirModalOpen, setPsirModalOpen] = useState(false);
   const [finalReportModalOpen, setFinalReportModalOpen] = useState(false);
-  const custodialStatus = Form.useWatch('custodialStatus', psirForm);
+  const [photoModalOpen, setPhotoModalOpen] = useState(false);
+  const [removingPhoto, setRemovingPhoto] = useState(false);
+  const custodialStatus = Form.useWatch('custodialStatus', caseForm);
 
   useEffect(() => {
     ApiClient.get('/users').then(setOfficers).catch(() => {});
@@ -84,17 +85,30 @@ export default function CaseDetailView() {
       setPhoto(null);
     }
 
+    const profile = p.psir_profile || {};
+    const f = profile.fields || {};
+    const radios = profile.radios || {};
+    const charged = (profile.offenses && profile.offenses.charged) || [];
+    // Case-info and PSIR-profile fields share a single form. Their field names
+    // are disjoint, so one setFieldsValue populates both; saveCaseInfo() splits
+    // the values back to the two endpoints on save.
     caseForm.setFieldsValue({
-      fullName: p.full_name,
-      age: p.age,
+      firstName: p.first_name,
+      middleName: p.middle_name,
+      lastName: p.last_name,
+      // Age is auto-computed from the birthdate; recompute on load so an edited
+      // birthdate stays authoritative over any stale stored age.
+      age: p.birthdate ? dayjs().diff(dayjs(p.birthdate), 'year') : p.age,
       address: p.address,
       offense: p.offense,
       offenseType: p.offense_type,
       courtBranch: p.court_branch,
       judge: p.judge,
       convictionDate: p.conviction_date ? dayjs(p.conviction_date) : null,
+      docketNumber: p.docket_number,
       caseNumber: p.case_number,
       dateOfOrder: p.date_of_order ? dayjs(p.date_of_order) : null,
+      dateOrderReceived: p.date_order_received ? dayjs(p.date_order_received) : null,
       supervisionPeriod: p.supervision_period,
       supervisionStartDate: p.supervision_start_date ? dayjs(p.supervision_start_date) : null,
       supervisionEndDate: p.supervision_end_date ? dayjs(p.supervision_end_date) : null,
@@ -104,16 +118,6 @@ export default function CaseDetailView() {
       maritalStatus: p.marital_status,
       contactNumber: p.contact_number,
       remarks: p.remarks,
-    });
-    setStage(p.stage);
-    setStatus(p.status);
-    setReassignTo(p.assigned_officer_id);
-
-    const profile = p.psir_profile || {};
-    const f = profile.fields || {};
-    const radios = profile.radios || {};
-    const charged = (profile.offenses && profile.offenses.charged) || [];
-    psirForm.setFieldsValue({
       trueName: f.trueName || '',
       education: f.education || '',
       religion: f.religion === '__other' ? (f.religionOther || '') : (f.religion || ''),
@@ -134,6 +138,9 @@ export default function CaseDetailView() {
         : [{ y: '', m: '', d: '', y2: '', m2: '', d2: '', fine: '' }],
       ...Object.fromEntries(SOCIO_ECONOMIC_GROUPS.map((g) => [`rate_${g.id}`, radios[`rate_${g.id}`] || g.options[g.options.length > 3 ? 1 : 0]])),
     });
+    setStage(p.stage);
+    setStatus(p.status);
+    setReassignTo(p.assigned_officer_id);
     setPriorRecords(priorRecordsFromFields(f));
 
     await loadHistory();
@@ -150,6 +157,26 @@ export default function CaseDetailView() {
     setAttendance(rows);
   }
 
+  async function savePhoto(dataUrl) {
+    await ApiClient.post(`/probationers/${selectedProbationerId}/photo`, { dataUrl });
+    setPhoto(dataUrl);
+    setPhotoModalOpen(false);
+    message.success('Photo saved.');
+  }
+
+  async function removePhoto() {
+    setRemovingPhoto(true);
+    try {
+      await ApiClient.delete(`/probationers/${selectedProbationerId}/photo`);
+      setPhoto(null);
+      message.success('Photo removed.');
+    } catch (err) {
+      message.error(err.message);
+    } finally {
+      setRemovingPhoto(false);
+    }
+  }
+
   if (!probationer) return null;
 
   const canEdit = isAdmin || user?.id === probationer.assigned_officer_id;
@@ -159,8 +186,14 @@ export default function CaseDetailView() {
     const values = await caseForm.validateFields();
     setSaving(true);
     try {
+      // 1. Core case record.
       await ApiClient.patch(`/probationers/${selectedProbationerId}`, {
-        fullName: values.fullName.trim(),
+        // Docket number is admin-only on the server — only send it when this
+        // user is an admin, otherwise the whole PATCH is rejected with 403.
+        ...(isAdmin ? { docketNumber: values.docketNumber?.trim() || '' } : {}),
+        firstName: values.firstName.trim(),
+        middleName: values.middleName?.trim() || '',
+        lastName: values.lastName.trim(),
         age: values.age ?? null,
         address: values.address?.trim() || '',
         offense: values.offense?.trim() || '',
@@ -170,6 +203,7 @@ export default function CaseDetailView() {
         convictionDate: values.convictionDate ? values.convictionDate.format('YYYY-MM-DD') : null,
         caseNumber: values.caseNumber?.trim() || '',
         dateOfOrder: values.dateOfOrder ? values.dateOfOrder.format('YYYY-MM-DD') : null,
+        dateOrderReceived: values.dateOrderReceived ? values.dateOrderReceived.format('YYYY-MM-DD') : null,
         supervisionPeriod: values.supervisionPeriod?.trim() || '',
         supervisionStartDate: values.supervisionStartDate ? values.supervisionStartDate.format('YYYY-MM-DD') : null,
         supervisionEndDate: values.supervisionEndDate ? values.supervisionEndDate.format('YYYY-MM-DD') : null,
@@ -180,19 +214,13 @@ export default function CaseDetailView() {
         contactNumber: values.contactNumber?.trim() || '',
         remarks: values.remarks?.trim() || '',
       });
-      message.success('Saved.');
-      await load();
-    } catch (err) {
-      message.error(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
+      // Admins can reassign the case from this form; the officer change goes
+      // through its dedicated endpoint (which records an audit entry).
+      if (isAdmin && reassignTo && reassignTo !== probationer.assigned_officer_id) {
+        await ApiClient.patch(`/probationers/${selectedProbationerId}/reassign`, { assignedOfficerId: reassignTo });
+      }
 
-  async function savePsirProfile() {
-    const values = await psirForm.validateFields();
-    setSavingPsirProfile(true);
-    try {
+      // 2. PSIR profile (consolidated into the same form).
       const fields = {
         trueName: (values.trueName || '').trim(),
         education: (values.education || '').trim(),
@@ -218,15 +246,15 @@ export default function CaseDetailView() {
       SOCIO_ECONOMIC_GROUPS.forEach((g) => { radios[`rate_${g.id}`] = values[`rate_${g.id}`]; });
       const offenses = { charged: (values.chargedOffenses || []).filter((o) => o && (o.sec || o.no)) };
       const sentences = (values.sentences || []).filter((s) => s && (s.y || s.m || s.d || s.fine));
-
       await ApiClient.patch(`/probationers/${selectedProbationerId}/psir-profile`, { fields, radios, offenses, sentences });
-      message.success('PSIR profile saved.');
+
+      message.success('Saved.');
       await load();
     } catch (err) {
       if (err?.errorFields) return; // antd validation error — already shown inline
       message.error(err.message);
     } finally {
-      setSavingPsirProfile(false);
+      setSaving(false);
     }
   }
 
@@ -256,24 +284,11 @@ export default function CaseDetailView() {
     }
   }
 
-  async function reassign() {
-    setSavingReassign(true);
-    try {
-      await ApiClient.patch(`/probationers/${selectedProbationerId}/reassign`, { assignedOfficerId: reassignTo });
-      message.success('Reassigned.');
-      await load();
-    } catch (err) {
-      message.error(err.message);
-    } finally {
-      setSavingReassign(false);
-    }
-  }
-
   return (
     <div>
       <Button type="link" style={{ paddingLeft: 0 }} onClick={goDashboard}>&larr; Back to list</Button>
       <Space align="center" style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}>
-        <Title level={3} style={{ margin: 0 }}>{probationer.full_name} — {probationer.docket_number}</Title>
+        <Title level={3} style={{ margin: 0 }}>{composeName(probationer)} — {probationer.docket_number}</Title>
         <Space>
           <Tooltip title={probationer.stage === 'Application' ? '' : 'PSIR can only be generated while the case is in the Application stage.'}>
             <Button
@@ -306,63 +321,183 @@ export default function CaseDetailView() {
       <Card className="case-info-form">
         <style>{`
           .case-info-form .ant-form-item-label > label { font-weight: 600; }
+          .case-info-form .section-title .ant-divider-inner-text { font-weight: 700; font-size: 18px; }
         `}</style>
-        <Form form={caseForm} layout="vertical" disabled={!canEdit}>
+        <Form form={caseForm} layout="vertical" size="large" disabled={!canEdit}>
+          <Divider orientation="center" className="section-title">Identifying Data</Divider>
           <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-            <Avatar
-              size={110}
-              shape="circle"
-              src={photo}
-              icon={<UserOutlined />}
-              style={{ flexShrink: 0, border: '1px solid #d9d9d9', background: '#f5f5f5' }}
-            />
+            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <Avatar
+                size={110}
+                shape="circle"
+                src={photo}
+                icon={<UserOutlined />}
+                style={{ border: '1px solid #d9d9d9', background: '#f5f5f5' }}
+              />
+              {canEdit && (
+                <Space size={4}>
+                  <Button size="small" icon={<CameraOutlined />} onClick={() => setPhotoModalOpen(true)}>
+                    {photo ? 'Change' : 'Add'}
+                  </Button>
+                  {photo && (
+                    <Popconfirm title="Remove this photo?" onConfirm={removePhoto} okButtonProps={{ loading: removingPhoto }}>
+                      <Button size="small" danger icon={<DeleteOutlined />} loading={removingPhoto}>Remove</Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              )}
+            </div>
             <div style={{ flex: 1, minWidth: 0 }}>
           <Row gutter={[24, 8]}>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={12} md={8}>
               {/* required={false} only hides the red "*" mark — the rules
-                  validation stays, since saveCaseInfo() below assumes a
-                  non-blank fullName (values.fullName.trim()) and the DB
-                  column is NOT NULL. */}
-              <Form.Item label="Full Name" name="fullName" required={false} rules={[{ required: true }]}><Input /></Form.Item>
+                  validation stays, since saveCaseInfo() below assumes non-blank
+                  first/last names (values.*.trim()) and the DB columns are
+                  NOT NULL. */}
+              <Form.Item label="Last Name" name="lastName" required={false} rules={[{ required: true }]}><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="First Name" name="firstName" required={false} rules={[{ required: true }]}><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Middle Name" name="middleName"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
               <Form.Item label="Alias" name="alias"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Age" name="age"><InputNumber style={{ width: '100%' }} /></Form.Item>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="True Name" name="trueName" tooltip="Only if different from the name above"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Birthdate" name="birthdate"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Birthdate" name="birthdate">
+                <DatePicker
+                  style={{ width: '100%' }}
+                  onChange={(d) => caseForm.setFieldValue('age', d ? dayjs().diff(d, 'year') : null)}
+                />
+              </Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Age" name="age" tooltip="Auto-computed from birthdate">
+                <InputNumber style={{ width: '100%' }} disabled />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
               <Form.Item label="Sex" name="sex">
                 <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
               </Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Marital Status" name="maritalStatus"><Input /></Form.Item>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Gender Preference" name="genderPref">
+                <AutoComplete options={toAutoCompleteOptions(GENDER_PREF_OPTIONS)} filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())} />
+              </Form.Item>
             </Col>
-
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Marital Status" name="maritalStatus">
+                <Select
+                  allowClear
+                  options={CIVIL_STATUS_OPTIONS.map((v) => ({ label: v, value: v }))}
+                  onChange={(v) => {
+                    // Mirrors the PSIR generator: Single ⇒ spouse "Not Applicable";
+                    // moving off Single clears an auto-filled "Not Applicable".
+                    if (v === 'Single') caseForm.setFieldValue('spouse', 'Not Applicable');
+                    else if (caseForm.getFieldValue('spouse') === 'Not Applicable') caseForm.setFieldValue('spouse', '');
+                  }}
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
               <Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Docket #"><Input value={probationer.docket_number} disabled /></Form.Item>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Educational Attainment" name="education"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Religion" name="religion">
+                <AutoComplete options={toAutoCompleteOptions(RELIGION_OPTIONS)} filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())} />
+              </Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Nationality" name="nationality">
+                <AutoComplete options={toAutoCompleteOptions(NATIONALITY_OPTIONS)} filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())} />
+              </Form.Item>
             </Col>
-
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Mother (Maiden Name)" name="motherName"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Father" name="fatherName"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Spouse" name="spouse"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Identifying / Remarkable Features" name="features"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
               <Form.Item label="Address" name="address"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Permanent Address" name="permanentAddress" tooltip="Only if different from the Address on file above"><Input /></Form.Item>
+            </Col>
+          </Row>
+            </div>
+          </div>
+
+          <Divider orientation="center" className="section-title">Court &amp; Case Data</Divider>
+          <Row gutter={[24, 8]}>
+            <Col xs={24} sm={12} md={8}>
+              {/* required={false} hides the red "*" but keeps the rule — the
+                  column is NOT NULL UNIQUE. Disabled for non-admins even when
+                  the rest of the form is editable, since docket edits are
+                  admin-only on the server. */}
+              <Form.Item
+                label="Docket #"
+                name="docketNumber"
+                required={false}
+                rules={[{ required: true, message: 'Docket number is required' }]}
+                tooltip={isAdmin ? undefined : 'Only admins can change the docket number.'}
+              >
+                <Input disabled={!isAdmin} />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Judge" name="judge"><Input /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Date of Order" name="dateOfOrder" tooltip="Date the court issued the order"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Date of Order Received in Office" name="dateOrderReceived" tooltip="Date the order was received in this office"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            </Col>
+            {isAdmin && (
+              <Col xs={24} sm={12} md={8}>
+                <Form.Item label="Assigned Officer" tooltip="Reassigns this case to another officer. Saved with the rest of the case information.">
+                  <Select
+                    style={{ width: '100%' }}
+                    value={reassignTo}
+                    onChange={setReassignTo}
+                    options={officers.map((o) => ({ label: o.full_name, value: o.id }))}
+                  />
+                </Form.Item>
+              </Col>
+            )}
+          </Row>
+
+          <Divider orientation="center" className="section-title">Criminal History</Divider>
+          <Row gutter={[24, 8]}>
+            <Col xs={24} sm={12} md={8}>
               <Form.Item label="Offense" name="offense"><Input /></Form.Item>
             </Col>
-            <Col xs={24} sm={12}>
+            <Col xs={24} sm={12} md={8}>
               <Form.Item label="Offense Classification" name="offenseType">
                 <Select
                   allowClear
@@ -370,97 +505,8 @@ export default function CaseDetailView() {
                 />
               </Form.Item>
             </Col>
-
-            <Col xs={24} sm={12}>
-              <Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Judge" name="judge"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Date of Order" name="dateOfOrder"><DatePicker style={{ width: '100%' }} /></Form.Item>
-            </Col>
-
-            <Col xs={24} sm={12}>
-              <Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0" /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Remarks" name="remarks"><Input.TextArea rows={1} /></Form.Item>
-            </Col>
           </Row>
-            </div>
-          </div>
-        </Form>
-        {canEdit && (
-          <div style={{ textAlign: 'right' }}>
-            <Button type="primary" onClick={saveCaseInfo} loading={saving}>Save Changes</Button>
-          </div>
-        )}
-      </Card>
-            ),
-          },
-          {
-            key: 'psir',
-            label: 'PSIR Profile',
-            children: (
-      <Card className="psir-form">
-        <style>{`
-          .psir-form .ant-form-item-label > label { font-weight: 600; }
-          .psir-form .psir-section-title .ant-divider-inner-text { font-weight: 700; font-size: 18px; }
-        `}</style>
-        <Form form={psirForm} layout="vertical" disabled={!canEdit}>
-          <Divider orientation="center" className="psir-section-title">Identifying Data</Divider>
-          <Row gutter={[24, 8]}>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="True Name" name="trueName" tooltip="Only if different from Full Name above">
-                <Input />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Educational Attainment" name="education"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Religion" name="religion">
-                <AutoComplete options={toAutoCompleteOptions(RELIGION_OPTIONS)} filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Nationality" name="nationality">
-                <AutoComplete options={toAutoCompleteOptions(NATIONALITY_OPTIONS)} filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Gender Preference" name="genderPref">
-                <AutoComplete options={toAutoCompleteOptions(GENDER_PREF_OPTIONS)} filterOption={(input, option) => option.value.toLowerCase().includes(input.toLowerCase())} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Mother (Maiden Name)" name="motherName"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Father" name="fatherName"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} sm={12} md={8} lg={6}>
-              <Form.Item label="Spouse" name="spouse"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item label="Identifying / Remarkable Features" name="features"><Input /></Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item label="Permanent Address" name="permanentAddress" tooltip="Only if different from the Address on file above">
-                <Input />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Divider orientation="center" className="psir-section-title">Criminal History</Divider>
-          <Text strong style={{ display: 'block', marginBottom: 8 }}>
+          <Text strong style={{ display: 'block', margin: '8px 0 8px' }}>
             Original Charge <Text type="secondary" style={{ fontWeight: 400 }}>(if different from the Convicted Offense above)</Text>
           </Text>
           <Form.List name="chargedOffenses">
@@ -591,7 +637,23 @@ export default function CaseDetailView() {
             ]}
           />
 
-          <Divider orientation="center" className="psir-section-title" style={{ marginTop: 24 }}>Socio-Economic Background</Divider>
+          <Divider orientation="center" className="section-title" style={{ marginTop: 24 }}>Supervision</Divider>
+          <Row gutter={[24, 8]}>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0" /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            </Col>
+            <Col xs={24} sm={12} md={8}>
+              <Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            </Col>
+            <Col xs={24}>
+              <Form.Item label="Remarks" name="remarks"><Input.TextArea rows={2} /></Form.Item>
+            </Col>
+          </Row>
+
+          <Divider orientation="center" className="section-title" style={{ marginTop: 24 }}>Socio-Economic Background</Divider>
           <Row gutter={[24, 16]}>
             {SOCIO_ECONOMIC_GROUPS.map((g) => (
               <Col xs={24} md={12} key={g.id}>
@@ -605,7 +667,11 @@ export default function CaseDetailView() {
             ))}
           </Row>
         </Form>
-        {canEdit && <Button type="primary" onClick={savePsirProfile} loading={savingPsirProfile}>Save PSIR Profile</Button>}
+        {canEdit && (
+          <div style={{ textAlign: 'right' }}>
+            <Button type="primary" onClick={saveCaseInfo} loading={saving}>Save Changes</Button>
+          </div>
+        )}
       </Card>
             ),
           },
@@ -670,27 +736,6 @@ export default function CaseDetailView() {
               )}
             </Space.Compact>
           </Col>
-          {isAdmin && (
-            <Col xs={24} sm={12} lg={8}>
-              <div style={{ marginBottom: 6, color: 'rgba(0,0,0,0.65)', fontWeight: 600 }}>Assigned Officer</div>
-              <Space.Compact style={{ width: '100%' }}>
-                <Select
-                  style={{ width: '100%' }}
-                  value={reassignTo}
-                  onChange={setReassignTo}
-                  options={officers.map((o) => ({ label: o.full_name, value: o.id }))}
-                />
-                <Button
-                  type="primary"
-                  onClick={reassign}
-                  loading={savingReassign}
-                  disabled={reassignTo === probationer.assigned_officer_id}
-                >
-                  Update
-                </Button>
-              </Space.Compact>
-            </Col>
-          )}
         </Row>
 
         <Divider />
@@ -775,6 +820,16 @@ export default function CaseDetailView() {
         onClose={() => setFinalReportModalOpen(false)}
         onGenerated={load}
       />
+      <Modal
+        title={photo ? 'Change Photo' : 'Add Photo'}
+        open={photoModalOpen}
+        onCancel={() => setPhotoModalOpen(false)}
+        footer={null}
+        destroyOnClose
+        width={620}
+      >
+        <PhotoCapture existingPhoto={photo} onSave={savePhoto} disabled={!canEdit} />
+      </Modal>
     </div>
   );
 }

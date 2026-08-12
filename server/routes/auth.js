@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const db = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
+const { composeUserName } = require('../../shared/nameUtils');
 
 // Matches the JWT's own expiresIn (see signToken) — a session recorded on
 // users.active_session_id older than this is already dead as far as the
@@ -51,22 +52,29 @@ function buildAuthRouter(settingsStore) {
       const [rows] = await db.getPool().query("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'");
       if (rows[0].n > 0) return res.status(409).json({ error: 'An admin account already exists' });
 
-      const { username, password, fullName } = req.body || {};
-      if (!username || !password || !fullName) {
-        return res.status(400).json({ error: 'username, password, and fullName are required' });
+      const { username, password, firstName, middleName, lastName } = req.body || {};
+      if (!username || !password || !firstName || !lastName) {
+        return res.status(400).json({ error: 'username, password, firstName, and lastName are required' });
       }
 
       const passwordHash = await bcrypt.hash(password, 12);
       const [result] = await db
         .getPool()
-        .query('INSERT INTO users (username, password_hash, full_name, role, is_active) VALUES (?, ?, ?, ?, 1)', [
-          username,
-          passwordHash,
-          fullName,
-          'admin',
-        ]);
+        .query(
+          'INSERT INTO users (username, password_hash, first_name, middle_name, last_name, role, is_active) VALUES (?, ?, ?, ?, ?, ?, 1)',
+          [username, passwordHash, firstName, middleName || null, lastName, 'admin']
+        );
 
-      const user = { id: result.insertId, username, full_name: fullName, role: 'admin' };
+      const user = {
+        id: result.insertId,
+        username,
+        first_name: firstName,
+        middle_name: middleName || null,
+        last_name: lastName,
+        title: null,
+        full_name: composeUserName({ first_name: firstName, middle_name: middleName, last_name: lastName }),
+        role: 'admin',
+      };
       const sessionId = await startSession(user, (req.body || {}).deviceName);
       res.status(201).json({ user, token: signToken(user, settingsStore, sessionId) });
     } catch (err) {
@@ -101,7 +109,16 @@ function buildAuthRouter(settingsStore) {
       }
 
       const sessionId = await startSession(user, deviceName);
-      const publicUser = { id: user.id, username: user.username, full_name: user.full_name, role: user.role };
+      const publicUser = {
+        id: user.id,
+        username: user.username,
+        first_name: user.first_name,
+        middle_name: user.middle_name,
+        last_name: user.last_name,
+        title: user.title,
+        full_name: composeUserName(user),
+        role: user.role,
+      };
       res.json({ user: publicUser, token: signToken(publicUser, settingsStore, sessionId) });
     } catch (err) {
       next(err);

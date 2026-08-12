@@ -71,7 +71,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
-    fullscreen: true,
+    fullscreen: false,
     show: !isHiddenLaunch,
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {

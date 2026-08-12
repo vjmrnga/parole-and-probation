@@ -6,6 +6,7 @@ import ChooseModeScreen from './screens/ChooseModeScreen.jsx';
 import HeadOfficeSetupScreen from './screens/HeadOfficeSetupScreen.jsx';
 import BranchOfficeSetupScreen from './screens/BranchOfficeSetupScreen.jsx';
 import LoginScreen from './screens/LoginScreen.jsx';
+import SettingsView from './screens/SettingsView.jsx';
 import AppShell from './screens/AppShell.jsx';
 import SplashScreen from './components/SplashScreen.jsx';
 import WelcomeEntranceScreen from './components/WelcomeEntranceScreen.jsx';
@@ -32,7 +33,7 @@ export default function App() {
   const [splashElapsed, setSplashElapsed] = useState(false);
   const [splashClosing, setSplashClosing] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
-  const [screen, setScreen] = useState('chooseMode'); // chooseMode | hoSetup | boSetup | login | app
+  const [screen, setScreen] = useState('chooseMode'); // chooseMode | hoSetup | boSetup | login | settings | app
   const [hoInitialStep, setHoInitialStep] = useState(0); // 0 = MySQL connection, 1 = create admin
   const [enums, setEnums] = useState({ STAGES: [], STATUSES: [], ROLES: [] });
   const [settings, setSettings] = useState({});
@@ -50,9 +51,16 @@ export default function App() {
   }, []);
 
   const openSettings = useCallback(() => {
-    setScreen('app');
-    setAppView('settings');
-  }, []);
+    // Ctrl+S works pre-login too, so mode selection (Switch Mode…) is reachable
+    // from the Sign In screen. Logged in, Settings lives inside the app shell;
+    // logged out, it's a standalone screen that returns to Login on "Back".
+    if (user) {
+      setScreen('app');
+      setAppView('settings');
+    } else {
+      setScreen('settings');
+    }
+  }, [user]);
 
   const goDashboard = useCallback(() => {
     setAppView('dashboard');
@@ -93,8 +101,10 @@ export default function App() {
       setEnums(enumsData);
       const s = await refreshSettings();
 
+      // Fresh install (no mode picked yet): land on Settings, where mode
+      // selection now lives (Switch Mode…), rather than a standalone screen.
       if (!s.mode) {
-        setScreen('chooseMode');
+        setScreen('settings');
         setBooting(false);
         return;
       }
@@ -192,8 +202,9 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [booting, splashElapsed]);
 
-  // Ctrl+S / Cmd+S opens Settings from anywhere — no visible menu item or
-  // icon, by design (see conversation history on this).
+  // Ctrl+S / Cmd+S opens Settings from anywhere — including pre-login, so mode
+  // selection stays reachable now that the Sign In screen has no Back button.
+  // No visible menu item or icon, by design (see conversation history on this).
   useEffect(() => {
     function onKeyDown(e) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
@@ -232,6 +243,11 @@ export default function App() {
           {screen === 'hoSetup' && <HeadOfficeSetupScreen />}
           {screen === 'boSetup' && <BranchOfficeSetupScreen />}
           {screen === 'login' && <LoginScreen />}
+          {screen === 'settings' && (
+            <div style={{ padding: 32, minHeight: '100vh' }}>
+              <SettingsView />
+            </div>
+          )}
           {screen === 'app' && <AppShell />}
         </AppContext.Provider>
       )}
