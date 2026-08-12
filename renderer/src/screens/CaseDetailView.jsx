@@ -24,6 +24,15 @@ function toAutoCompleteOptions(values) {
   return values.map((v) => ({ value: v }));
 }
 
+// Wrap the alias in double quotes automatically, but leave it alone if the
+// user already typed their own quotes (so "Tony" stays "Tony", not ""Tony"").
+function formatAlias(value) {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) return trimmed;
+  return `"${trimmed}"`;
+}
+
 function defaultPriorRecords() {
   return PRIOR_RECORD_AGENCIES.map(([agency, placeholder]) => ({ agency, placeholder, caseNo: '', offense: '', dateCharged: '', status: '' }));
 }
@@ -208,7 +217,7 @@ export default function CaseDetailView() {
         supervisionPeriod: values.supervisionPeriod?.trim() || '',
         supervisionStartDate: values.supervisionStartDate ? values.supervisionStartDate.format('YYYY-MM-DD') : null,
         supervisionEndDate: values.supervisionEndDate ? values.supervisionEndDate.format('YYYY-MM-DD') : null,
-        alias: values.alias?.trim() || '',
+        alias: formatAlias(values.alias),
         birthdate: values.birthdate ? values.birthdate.format('YYYY-MM-DD') : null,
         sex: values.sex || '',
         maritalStatus: values.maritalStatus?.trim() || '',
@@ -380,7 +389,12 @@ export default function CaseDetailView() {
             </Col>
             <Col xs={24} sm={12} md={8}>
               <Form.Item label="Age" name="age" tooltip="Auto-computed from birthdate">
-                <InputNumber style={{ width: '100%' }} disabled />
+                <InputNumber
+                  style={{ width: '100%' }}
+                  disabled
+                  formatter={(value) => (value === '' || value === null || value === undefined ? '' : `${value} years old`)}
+                  parser={(value) => (value ? value.replace(/\D/g, '') : '')}
+                />
               </Form.Item>
             </Col>
             <Col xs={24} sm={12} md={8}>

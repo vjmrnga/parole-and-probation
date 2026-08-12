@@ -32,8 +32,13 @@ function pronouns(){
 function fullNameCaps(){
   return [val("firstName"), val("middleName"), val("lastName")].filter(Boolean).join(" ").toUpperCase();
 }
+function aliasBare(){
+  // Strip any quotes the user (or an earlier save) may have added so we don't
+  // double-wrap; matches the PSIR generator's handling.
+  return val("alias").replace(/^["\u201C\u2018']+|["\u201D\u2019']+$/g,"").trim();
+}
 function aliasQuoted(){
-  var a = val("alias");
+  var a = aliasBare();
   return a ? "\u201C" + a.toUpperCase() + "\u201D" : "";
 }
 function nameWithAlias(){
@@ -50,7 +55,7 @@ function computeAge(){
   var b = bd.split("-").map(Number), r = ref.split("-").map(Number);
   var age = r[0] - b[0];
   if(r[1] < b[1] || (r[1] === b[1] && r[2] < b[2])) age--;
-  if(age >= 0 && age < 130) $("age").value = age + " Years Old";
+  if(age >= 0 && age < 130) $("age").value = age + " years old";
 }
 
 /* ---- select-with-Others helper ---- */
@@ -418,7 +423,7 @@ function b64ToText(b){ return new TextDecoder("utf-8").decode(b64ToBytes(b)); }
 function nameProper(){
   var n = [val("firstName"), val("middleName"), val("lastName")].filter(Boolean).join(" ");
   n = smartTitle(n.toLowerCase());
-  var a = val("alias");
+  var a = aliasBare();
   return a ? n + " a.k.a. \u201C" + smartTitle(a.toLowerCase()) + "\u201D" : n;
 }
 

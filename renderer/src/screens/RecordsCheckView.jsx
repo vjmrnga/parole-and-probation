@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { Button, Popconfirm, Space, Table, Tabs, Tag, Tooltip, Typography, message } from 'antd';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Button, DatePicker, Input, Popconfirm, Select, Space, Table, Tabs, Tag, Tooltip, Typography, message } from 'antd';
 import { LockOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
 import { useDocEditor, lockStatus } from '../hooks/useDocEditor.js';
 import { composeName } from '../utils/composeName.js';
 
+const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
 // Maps a probationer (+ its psir_profile snapshot) onto the exact record
@@ -70,7 +72,32 @@ function GeneratorTab({ iframeRef, count, loading, onRefresh }) {
 }
 
 function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefresh, onOpen, onSaveAs, onDelete, onForceUnlock }) {
-  const recipients = [...new Set(rows.map((r) => r.recipient))].sort();
+  const [search, setSearch] = useState('');
+  const [officerFilter, setOfficerFilter] = useState();
+  const [dateRange, setDateRange] = useState(null);
+
+  const officerOptions = useMemo(() => {
+    const names = [...new Set(rows.map((r) => r.generated_by_name).filter(Boolean))];
+    return names.sort().map((name) => ({ label: name, value: name }));
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (q) {
+        const hay = `${r.probationer_name || ''} ${r.docket_number || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (officerFilter && r.generated_by_name !== officerFilter) return false;
+      if (dateRange && dateRange[0] && dateRange[1]) {
+        const generated = dayjs(r.generated_at);
+        if (generated.isBefore(dateRange[0], 'day') || generated.isAfter(dateRange[1], 'day')) return false;
+      }
+      return true;
+    });
+  }, [rows, search, officerFilter, dateRange]);
+
+  const recipients = [...new Set(filteredRows.map((r) => r.recipient))].sort();
 
   const columns = [
     {
@@ -123,21 +150,52 @@ function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefre
     },
   ];
 
+  const hasFilters = Boolean(search.trim() || officerFilter || (dateRange && dateRange[0] && dateRange[1]));
+
   return (
     <div>
       <Space align="center" style={{ width: '100%', justifyContent: 'space-between', marginBottom: 12 }}>
         <Text type="secondary" style={{ fontSize: 13 }}>
-          Shared across Head Office and Branch Office — {rows.length} file{rows.length === 1 ? '' : 's'} across {recipients.length} folder{recipients.length === 1 ? '' : 's'}.
+          Shared across Head Office and Branch Office — {filteredRows.length} file{filteredRows.length === 1 ? '' : 's'} across {recipients.length} folder{recipients.length === 1 ? '' : 's'}
+          {hasFilters ? ` (of ${rows.length} total)` : ''}.
         </Text>
         <Button onClick={onRefresh} loading={loading}>Refresh</Button>
       </Space>
+
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Input.Search
+          placeholder="Search name or docket #…"
+          allowClear
+          style={{ width: 280 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <Select
+          placeholder="All Officers"
+          allowClear
+          style={{ width: 220 }}
+          options={officerOptions}
+          value={officerFilter}
+          onChange={setOfficerFilter}
+        />
+        <RangePicker
+          placeholder={['Generated from', 'Generated to']}
+          value={dateRange}
+          onChange={setDateRange}
+        />
+      </Space>
+
       {recipients.length === 0 ? (
-        <Text type="secondary">No PDFs saved yet — use the Generator tab to save some.</Text>
+        <Text type="secondary">
+          {rows.length === 0
+            ? 'No PDFs saved yet — use the Generator tab to save some.'
+            : 'No files match the current filters.'}
+        </Text>
       ) : (
         <Tabs
           type="card"
           items={recipients.map((recipient) => {
-            const recipientRows = rows.filter((r) => r.recipient === recipient);
+            const recipientRows = filteredRows.filter((r) => r.recipient === recipient);
             return {
               key: recipient,
               label: `${recipient} (${recipientRows.length})`,

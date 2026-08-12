@@ -81,6 +81,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Chromium's built-in PDF viewer is a plugin; without this the records-check
+      // preview/print iframes (blob-URL PDFs) render blank and printing does nothing.
+      plugins: true,
     },
   });
 
