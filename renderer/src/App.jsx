@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Modal } from 'antd';
 import { ApiClient } from './api/apiClient.js';
 import { serverEvents } from './api/serverEvents.js';
+import { syncOutbox } from './api/offlineAttendance.js';
 import { AppContext } from './AppContext.jsx';
 import ChooseModeScreen from './screens/ChooseModeScreen.jsx';
 import HeadOfficeSetupScreen from './screens/HeadOfficeSetupScreen.jsx';
@@ -44,6 +45,13 @@ export default function App() {
   const [welcomeUser, setWelcomeUser] = useState(null);
   const [welcomeClosing, setWelcomeClosing] = useState(false);
   const [sessionEndedMessage, setSessionEndedMessage] = useState('');
+  // Shown when an online session loses its connection to Head Office mid-use.
+  const [connectionLostOpen, setConnectionLostOpen] = useState(false);
+  // Shown when, while offline, Head Office becomes reachable again.
+  const [backOnlineOpen, setBackOnlineOpen] = useState(false);
+  // Branch Office signed in against a cached credential because Head Office was
+  // unreachable — the app is restricted to attendance until reconnected.
+  const [offlineMode, setOfflineMode] = useState(false);
 
   const refreshSettings = useCallback(async () => {
     const s = await window.api.getSettings();
@@ -72,6 +80,7 @@ export default function App() {
     ApiClient.logout();
     localStorage.removeItem(APP_VIEW_STORAGE_KEY);
     setUser(null);
+    setOfflineMode(false);
     setScreen('login');
   }, []);
 
@@ -82,7 +91,19 @@ export default function App() {
 
   const enterApp = useCallback((loggedInUser) => {
     setUser(loggedInUser);
+    setOfflineMode(false);
     setAppView('dashboard');
+    setScreen('app');
+    setWelcomeClosing(false);
+    setWelcomeUser(loggedInUser);
+  }, []);
+
+  // Restricted entry when Head Office is unreachable: attendance is the only
+  // view available (see AppShell), and everything routes to it.
+  const enterOfflineApp = useCallback((loggedInUser) => {
+    setUser(loggedInUser);
+    setOfflineMode(true);
+    setAppView('signatureAttendance');
     setScreen('app');
     setWelcomeClosing(false);
     setWelcomeUser(loggedInUser);
@@ -170,10 +191,27 @@ export default function App() {
   // renderer/src/api/serverEvents.js) so screens can auto-refresh when data
   // changes on another machine; tear it down on logout / session end.
   useEffect(() => {
-    if (!user) return undefined;
+    if (!user || offlineMode) return undefined; // no token / no server in offline mode
     serverEvents.connect(ApiClient.getToken());
     return () => serverEvents.disconnect();
-  }, [user]);
+  }, [user, offlineMode]);
+
+  // On a normal (online) login, replay any attendance this officer captured
+  // offline earlier. Best-effort and quiet — the attendance screen also offers
+  // a manual "Sync now" and shows what's still queued.
+  useEffect(() => {
+    if (!user || offlineMode) return;
+    (async () => {
+      try {
+        const { entries } = await window.api.offlineGetOutbox();
+        if (entries.length) {
+          await syncOutbox(user.id);
+        }
+      } catch (err) {
+        // leave the queue for the manual sync path
+      }
+    })();
+  }, [user, offlineMode]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSplashElapsed(true), SPLASH_MIN_MS);
@@ -202,6 +240,42 @@ export default function App() {
       localStorage.removeItem(APP_VIEW_STORAGE_KEY);
       setScreen('login');
       setSessionEndedMessage(message);
+    });
+  }, []);
+
+  // While in offline mode, poll Head Office; once it's reachable again, prompt
+  // the user to sign in online so their queued attendance can sync.
+  useEffect(() => {
+    if (!offlineMode) return undefined;
+    let stopped = false;
+    const id = setInterval(async () => {
+      const res = await window.api.pingHeadOffice();
+      if (!stopped && res && res.ok) {
+        clearInterval(id);
+        setBackOnlineOpen(true);
+      }
+    }, 15000);
+    return () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  }, [offlineMode]);
+
+  // Mid-session connection loss: an online request couldn't reach Head Office.
+  // Tell the user and return them to the login screen, where they can continue
+  // in offline attendance mode (see LoginScreen). Ignored if already offline.
+  useEffect(() => {
+    ApiClient.onConnectionLost(() => {
+      if (ApiClient.isOffline()) return;
+      // Clear locally without a network logout — the server is unreachable, and
+      // a logout request would just re-trigger this handler.
+      ApiClient.clearLocalSession();
+      setUser(null);
+      setOfflineMode(false);
+      setWelcomeUser(null);
+      localStorage.removeItem(APP_VIEW_STORAGE_KEY);
+      setScreen('login');
+      setConnectionLostOpen(true);
     });
   }, []);
 
@@ -240,6 +314,8 @@ export default function App() {
     logout,
     openCase,
     enterApp,
+    enterOfflineApp,
+    offlineMode,
     setScreen,
     hoInitialStep,
   };
@@ -273,6 +349,33 @@ export default function App() {
         onOk={() => setSessionEndedMessage('')}
       >
         {sessionEndedMessage}
+      </Modal>
+      <Modal
+        open={connectionLostOpen}
+        title="You are now offline"
+        okText="OK"
+        cancelButtonProps={{ style: { display: 'none' } }}
+        closable={false}
+        maskClosable={false}
+        onOk={() => setConnectionLostOpen(false)}
+      >
+        Head Office can&apos;t be reached, so you&apos;ve been returned to the login screen. Sign in again to
+        reconnect, or choose <strong>Continue in Offline Mode</strong> to log attendance offline.
+      </Modal>
+      <Modal
+        open={backOnlineOpen}
+        title="You're back online"
+        okText="Sign in to sync"
+        cancelText="Later"
+        maskClosable={false}
+        onOk={() => {
+          setBackOnlineOpen(false);
+          logout();
+        }}
+        onCancel={() => setBackOnlineOpen(false)}
+      >
+        The connection to Head Office has been restored. Sign in again to reconnect — the attendance you
+        logged offline will sync automatically once you do.
       </Modal>
     </>
   );

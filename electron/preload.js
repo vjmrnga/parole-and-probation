@@ -24,6 +24,18 @@ contextBridge.exposeInMainWorld('api', {
   // API calls (always proxied through main — see electron/apiProxy.js)
   apiRequest: (method, path, body, token) => ipcRenderer.invoke('api-request', { method, path, body, token }),
 
+  // Branch Office offline attendance (see electron/offlineStore.js)
+  pingHeadOffice: () => ipcRenderer.invoke('ping-head-office'),
+  cacheOfflineCredential: (payload) => ipcRenderer.invoke('offline-cache-credential', payload),
+  verifyOfflineCredential: (payload) => ipcRenderer.invoke('offline-verify-credential', payload),
+  offlineGetCache: () => ipcRenderer.invoke('offline-get-cache'),
+  offlineSetProbationerList: (probationers) => ipcRenderer.invoke('offline-set-probationer-list', probationers),
+  offlineSetProbationerDetail: (id, detail) => ipcRenderer.invoke('offline-set-probationer-detail', { id, detail }),
+  offlineGetOutbox: () => ipcRenderer.invoke('offline-get-outbox'),
+  offlineEnqueue: (entry) => ipcRenderer.invoke('offline-enqueue', entry),
+  offlineRemoveOutboxEntry: (clientId) => ipcRenderer.invoke('offline-remove-outbox-entry', clientId),
+  offlineExportOutboxExcel: () => ipcRenderer.invoke('offline-export-outbox-excel'),
+
   // Real-time server push (Server-Sent Events, proxied through main — see
   // electron/eventStream.js). subscribe after login with the auth token;
   // onServerEvent registers a listener and returns an unsubscribe function.

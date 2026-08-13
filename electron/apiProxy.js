@@ -10,7 +10,7 @@ const fs = require('fs');
 const { certPaths } = require('../server/tls/certGen');
 const { buildPinnedAgent, parseHostPort } = require('./certPinning');
 
-function requestJson({ hostname, port, path, method, headers, body, agent }) {
+function requestJson({ hostname, port, path, method, headers, body, agent, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const payload = body !== undefined ? JSON.stringify(body) : null;
     const req = https.request(
@@ -41,6 +41,12 @@ function requestJson({ hostname, port, path, method, headers, body, agent }) {
       }
     );
     req.on('error', reject);
+    // Bounds how long a dead/unreachable Head Office can hang a call — used by
+    // the reachability ping so "is Head Office up?" resolves quickly instead of
+    // waiting out the OS's default connect timeout.
+    if (timeoutMs) {
+      req.setTimeout(timeoutMs, () => req.destroy(new Error('Request timed out')));
+    }
     if (payload) req.write(payload);
     req.end();
   });
@@ -82,10 +88,10 @@ function resolveTarget({ settingsStore, userDataPath }) {
   throw new Error('No mode configured yet');
 }
 
-async function apiRequest({ method, path, body, token, settingsStore, userDataPath }) {
+async function apiRequest({ method, path, body, token, settingsStore, userDataPath, timeoutMs }) {
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const { hostname, port, agent } = resolveTarget({ settingsStore, userDataPath });
-  return requestJson({ hostname, port, path: `/api${path}`, method, headers, body, agent });
+  return requestJson({ hostname, port, path: `/api${path}`, method, headers, body, agent, timeoutMs });
 }
 
 module.exports = { apiRequest, resolveTarget };

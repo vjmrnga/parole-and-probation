@@ -6,6 +6,7 @@ const fs = require('fs');
 const { pathToFileURL } = require('url');
 
 const settingsStore = require('./settingsStore');
+const offlineStore = require('./offlineStore');
 const tray = require('./tray');
 const { apiRequest } = require('./apiProxy');
 const { startEventStream } = require('./eventStream');
@@ -301,6 +302,8 @@ if (!gotLock) {
       registerAppProtocol();
     }
 
+    offlineStore.init(app.getPath('userData'));
+
     createWindow();
     await initForCurrentMode();
     setupAutoUpdater();
@@ -433,6 +436,44 @@ if (!gotLock) {
     } catch (err) {
       return { status: 0, body: { error: err.message } };
     }
+  });
+
+  // ---- IPC: Branch Office offline attendance ----
+  // Cheap reachability probe (unauthenticated /api/health) with a short timeout
+  // so "is Head Office up?" resolves fast instead of hanging on a dead network.
+  ipcMain.handle('ping-head-office', async () => {
+    try {
+      const res = await apiRequest({
+        method: 'GET',
+        path: '/health',
+        settingsStore,
+        userDataPath: app.getPath('userData'),
+        timeoutMs: 4000,
+      });
+      return { ok: res.status === 200 };
+    } catch (err) {
+      return { ok: false };
+    }
+  });
+
+  ipcMain.handle('offline-cache-credential', (_e, payload) => offlineStore.cacheCredential(payload));
+  ipcMain.handle('offline-verify-credential', (_e, payload) => offlineStore.verifyCredential(payload));
+  ipcMain.handle('offline-get-cache', () => offlineStore.getCache());
+  ipcMain.handle('offline-set-probationer-list', (_e, probationers) => offlineStore.setProbationerList(probationers));
+  ipcMain.handle('offline-set-probationer-detail', (_e, { id, detail }) => offlineStore.setProbationerDetail(id, detail));
+  ipcMain.handle('offline-get-outbox', () => offlineStore.getOutbox());
+  ipcMain.handle('offline-enqueue', (_e, entry) => offlineStore.enqueue(entry));
+  ipcMain.handle('offline-remove-outbox-entry', (_e, clientId) => offlineStore.removeEntry(clientId));
+  ipcMain.handle('offline-export-outbox-excel', async () => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Pending Attendance',
+      defaultPath: `Pending Attendance ${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false };
+    const workbook = await offlineStore.buildOutboxWorkbook();
+    await workbook.xlsx.writeFile(result.filePath);
+    return { ok: true, filePath: result.filePath };
   });
 
   // ---- IPC: real-time server events (SSE) ----

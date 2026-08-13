@@ -5,10 +5,13 @@ import { useApp } from '../AppContext.jsx';
 
 const { Text } = Typography;
 
+const HEAD_OFFICE_URL_KEY = 'branchOffice.headOfficeUrl';
+
 export default function BranchOfficeSetupScreen() {
   const { refreshSettings, setScreen } = useApp();
   const [step, setStep] = useState(0); // 0 = enter URL, 1 = confirm fingerprint, 2 = done
   const [url, setUrl] = useState('');
+  const savedUrl = localStorage.getItem(HEAD_OFFICE_URL_KEY) || '';
   const [fetchError, setFetchError] = useState('');
   const [fetching, setFetching] = useState(false);
   const [fingerprint, setFingerprint] = useState('');
@@ -17,6 +20,7 @@ export default function BranchOfficeSetupScreen() {
     setFetchError('');
     const targetUrl = values.url.trim();
     setUrl(targetUrl);
+    localStorage.setItem(HEAD_OFFICE_URL_KEY, targetUrl);
     setFetching(true);
     const result = await window.api.fetchRemoteFingerprint(targetUrl);
     setFetching(false);
@@ -42,7 +46,7 @@ export default function BranchOfficeSetupScreen() {
         <Text type="secondary">Connect this PC to your office's Head Office server.</Text>
 
         {step === 0 && (
-          <Form layout="vertical" onFinish={fetchCertificate} style={{ marginTop: 16 }}>
+          <Form layout="vertical" onFinish={fetchCertificate} initialValues={{ url: savedUrl }} style={{ marginTop: 16 }}>
             <Form.Item label="Head Office URL" name="url" rules={[{ required: true, message: 'Enter the Head Office URL' }]}>
               <Input placeholder="https://192.168.1.50:4750" />
             </Form.Item>
