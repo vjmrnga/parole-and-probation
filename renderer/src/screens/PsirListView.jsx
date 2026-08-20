@@ -137,6 +137,7 @@ export default function PsirListView() {
           placeholder={['Generated from', 'Generated to']}
           value={dateRange}
           onChange={setDateRange}
+          format="MM/DD/YYYY"
         />
       </Space>
 

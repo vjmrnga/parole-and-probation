@@ -13,6 +13,14 @@ const STATUSES = [
 
 const ROLES = ['officer', 'admin', 'staff'];
 
+// Self-service sign-up workflow (see server/routes/auth.js's /signup and
+// server/routes/users.js's /approve, /reject): a self-registered account
+// starts 'pending' and can't log in until an admin reviews it in Manage
+// Users. Accounts created directly by an admin (POST /users) skip this and
+// are inserted already 'approved' — same as every pre-existing account,
+// since the column defaults to 'approved'.
+const APPROVAL_STATUSES = ['pending', 'approved', 'rejected'];
+
 // Job/rank titles a user account can carry (shown next to the name in Manage
 // Users; stored on users.title). Fixed vocab like the others here — adding one
 // means a code change plus a matching ENUM migration (see users.title DDL).
@@ -22,4 +30,4 @@ const OFFENSE_TYPES = ['Drug Offense', 'Non-Drug Offense'];
 
 const HISTORY_FIELDS = ['stage', 'status', 'assigned_officer'];
 
-module.exports = { STAGES, STATUSES, ROLES, USER_TITLES, OFFENSE_TYPES, HISTORY_FIELDS };
+module.exports = { STAGES, STATUSES, ROLES, APPROVAL_STATUSES, USER_TITLES, OFFENSE_TYPES, HISTORY_FIELDS };

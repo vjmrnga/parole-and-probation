@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('api', {
   mysqlRunSetup: (config) => ipcRenderer.invoke('mysql-run-setup', config),
   getCertFingerprint: () => ipcRenderer.invoke('get-cert-fingerprint'),
   runBackupNow: () => ipcRenderer.invoke('run-backup-now'),
+  mysqlExportDatabase: () => ipcRenderer.invoke('mysql-export-database'),
+  mysqlImportDatabase: () => ipcRenderer.invoke('mysql-import-database'),
 
   // Branch Office pairing
   fetchRemoteFingerprint: (headOfficeUrl) => ipcRenderer.invoke('fetch-remote-fingerprint', headOfficeUrl),

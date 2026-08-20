@@ -4,6 +4,7 @@ import { ApiClient } from '../api/apiClient.js';
 import { useApp } from '../AppContext.jsx';
 import {
   CIVIL_STATUS_OPTIONS as CIVIL_OPTIONS, RELIGION_OPTIONS, NATIONALITY_OPTIONS, GENDER_PREF_OPTIONS,
+  COURT_TYPE_OPTIONS,
 } from '../constants/psirOptions.js';
 import { composeName } from '../utils/composeName.js';
 
@@ -44,6 +45,7 @@ function buildPrefillPayload(probationer, orgSettings) {
     middleName: probationer.middle_name || '',
     docketNo: probationer.docket_number || '',
     criminalCaseNo: probationer.case_number || '',
+    alias: probationer.alias || '',
     judgeName: probationer.judge || '',
     presentAddress: probationer.address || '',
     orderDate: probationer.date_of_order ? String(probationer.date_of_order).slice(0, 10) : '',
@@ -57,13 +59,31 @@ function buildPrefillPayload(probationer, orgSettings) {
 
   // psir_profile (Case Detail edits + past generations) wins over the seed
   // above when both set the same field; office defaults win over everything.
-  const fields = { ...seeded, ...(base.fields || {}) };
+  // Blank values are dropped from that override, same as the org-settings
+  // merge below — Case Information writes every field on save, even ones the
+  // officer never touched (e.g. Sentencing Court City/Province), and an
+  // empty string there would otherwise blank out the generator's own
+  // sensible built-in default (e.g. "Talisay"/"Cebu") instead of leaving it.
+  const nonEmptyProfileFields = Object.fromEntries(
+    Object.entries(base.fields || {}).filter(([, v]) => v !== '' && v != null)
+  );
+  const fields = { ...seeded, ...nonEmptyProfileFields };
+  // Case Information's Court field is named "courtProvince" (see
+  // CaseProfileFields.jsx); the generator's Transmittal Letter section uses
+  // "courtProv" for the same input.
+  if (fields.courtProvince !== undefined) fields.courtProv = fields.courtProvince;
   Object.entries(ORG_FIELD_MAP).forEach(([col, id]) => {
     if (orgSettings && orgSettings[col]) fields[id] = orgSettings[col];
   });
   applySelectOther(fields, 'religion', RELIGION_OPTIONS);
   applySelectOther(fields, 'nationality', NATIONALITY_OPTIONS);
   applySelectOther(fields, 'genderPref', GENDER_PREF_OPTIONS);
+  // Court Type / Sentencing Court Type are free-typed on Case Information
+  // (see CaseProfileFields.jsx) but the generator's own <select id="courtType">
+  // / <select id="sentCourtType"> only render one of their fixed options or
+  // "__other".
+  applySelectOther(fields, 'courtType', COURT_TYPE_OPTIONS);
+  applySelectOther(fields, 'sentCourtType', COURT_TYPE_OPTIONS);
 
   return { ...base, fields };
 }
@@ -100,6 +120,8 @@ export default function GeneratePsirModal({ open, probationer, onClose, onGenera
         setIframeLoaded(true);
       } else if (msg.type === 'psir:generated') {
         handleGenerated(msg.payload);
+      } else if (msg.type === 'psir:error') {
+        message.error(msg.payload);
       }
     }
     window.addEventListener('message', handleMessage);

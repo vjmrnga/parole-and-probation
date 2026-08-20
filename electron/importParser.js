@@ -24,7 +24,6 @@ const FIELD_HEADER_PATTERNS = {
   offense: [{ p: 'offenses' }, { p: 'offense' }, { p: 'offence' }],
   courtBranch: [{ p: 'court branch' }, { p: 'court', exact: true }],
   judge: [{ p: 'judge', exact: true }],
-  convictionDate: [{ p: 'conviction date' }, { p: 'date of conviction' }],
   assignedOfficer: [{ p: 'assigned officer' }, { p: 'officer' }, { p: 'io', exact: true }],
   stage: [{ p: 'stage', exact: true }],
   status: [{ p: 'status', exact: true }],
@@ -32,7 +31,7 @@ const FIELD_HEADER_PATTERNS = {
 
 const TEMPLATE_HEADERS = [
   'Full Name', 'Age', 'Docket Number', 'Address', 'Offense', 'Court Branch',
-  'Judge', 'Conviction Date', 'Assigned Officer', 'Stage', 'Status',
+  'Judge', 'Assigned Officer', 'Stage', 'Status',
 ];
 
 function normalizeHeader(text) {
@@ -164,7 +163,6 @@ async function parseProbationerImport(filePath) {
       offense: cellToText(get('offense')),
       courtBranch: cellToText(get('courtBranch')),
       judge: cellToText(get('judge')),
-      convictionDate: cellToDateString(get('convictionDate')),
       assignedOfficer: cellToText(get('assignedOfficer')),
       stage: cellToText(get('stage')),
       status: cellToText(get('status')),

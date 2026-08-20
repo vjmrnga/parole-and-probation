@@ -122,6 +122,7 @@ export default function FinalReportListView() {
           placeholder={['Generated from', 'Generated to']}
           value={dateRange}
           onChange={setDateRange}
+          format="MM/DD/YYYY"
         />
       </Space>
 

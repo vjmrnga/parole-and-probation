@@ -101,7 +101,7 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
   router.post('/', async (req, res, next) => {
     try {
       const {
-        age, address, docketNumber, offense, offenseType, courtBranch, judge, convictionDate,
+        age, address, docketNumber, offense, offenseType, courtBranch, judge,
         caseNumber, dateOfOrder, dateOrderReceived, supervisionPeriod, supervisionStartDate, supervisionEndDate,
         alias, birthdate, sex, maritalStatus, contactNumber, remarks,
       } = req.body || {};
@@ -117,12 +117,12 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
 
       const [result] = await db.getPool().query(
         `INSERT INTO probationers
-          (first_name, middle_name, last_name, age, address, docket_number, offense, offense_type, court_branch, judge, conviction_date, assigned_officer_id,
+          (first_name, middle_name, last_name, age, address, docket_number, offense, offense_type, court_branch, judge, assigned_officer_id,
            case_number, date_of_order, date_order_received, supervision_period, supervision_start_date, supervision_end_date,
            alias, birthdate, sex, marital_status, contact_number, remarks)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          name.firstName || null, name.middleName || null, name.lastName, age || null, address || null, docketNumber, offense || null, offenseType || null, courtBranch || null, judge || null, convictionDate || null, assignedOfficerId,
+          name.firstName || null, name.middleName || null, name.lastName, age || null, address || null, docketNumber, offense || null, offenseType || null, courtBranch || null, judge || null, assignedOfficerId,
           caseNumber || null, dateOfOrder || null, dateOrderReceived || null, supervisionPeriod || null, supervisionStartDate || null, supervisionEndDate || null,
           alias || null, birthdate || null, sex || null, maritalStatus || null, contactNumber || null, remarks || null,
         ]
@@ -143,14 +143,14 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
       if (!isAssignedOrAdmin(req, probationer)) return res.status(403).json({ error: 'Not assigned to you' });
 
       const editable = [
-        'first_name', 'middle_name', 'last_name', 'age', 'address', 'offense', 'offense_type', 'court_branch', 'judge', 'conviction_date',
+        'first_name', 'middle_name', 'last_name', 'age', 'address', 'offense', 'offense_type', 'court_branch', 'judge',
         'case_number', 'date_of_order', 'date_order_received', 'supervision_period', 'supervision_start_date', 'supervision_end_date',
         'alias', 'birthdate', 'sex', 'marital_status', 'contact_number', 'remarks',
       ];
       const fieldMap = {
         firstName: 'first_name', middleName: 'middle_name', lastName: 'last_name',
         age: 'age', address: 'address', offense: 'offense', offenseType: 'offense_type',
-        courtBranch: 'court_branch', judge: 'judge', convictionDate: 'conviction_date',
+        courtBranch: 'court_branch', judge: 'judge',
         caseNumber: 'case_number', dateOfOrder: 'date_of_order', dateOrderReceived: 'date_order_received',
         supervisionPeriod: 'supervision_period',
         supervisionStartDate: 'supervision_start_date', supervisionEndDate: 'supervision_end_date',
@@ -423,6 +423,12 @@ function buildProbationersRouter(settingsStore, signaturesDir, photosDir) {
         radios: { ...(current.radios || {}), ...(patch.radios || {}) },
         offenses: { ...(current.offenses || {}), ...(patch.offenses || {}) },
         sentences: patch.sentences !== undefined ? patch.sentences : current.sentences,
+        // Same shallow-merge as fields/radios/offenses above — lets the New
+        // Case / Case Information photo flow (see CaseProfileFields.jsx /
+        // renderer/src/utils/psirPhoto.js) hand the PSIR Generator a
+        // pre-fitted picture without clobbering media the generator itself
+        // already wrote (letterhead images, etc.).
+        media: { ...(current.media || {}), ...(patch.media || {}) },
       };
       await db.getPool().query('UPDATE probationers SET psir_profile = ? WHERE id = ?', [JSON.stringify(merged), req.params.id]);
       broadcast({ resource: 'probationers', action: 'updated', id: Number(req.params.id) });

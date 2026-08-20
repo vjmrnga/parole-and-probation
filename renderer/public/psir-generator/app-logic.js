@@ -155,12 +155,30 @@ function updateSentPreview(){
   if(el) el.textContent = "Will print as: " + (composeSentence() || "(blank)");
 }
 
-/* ---- offense builders (Sec. __, Art. __ of R.A. ____) ---- */
+/* ---- offense builders (free-text citation, e.g. "Sec. 5, Art. II of R.A. 9165") ---- */
 const OFFENSES = {
-  charged:   [{sec:"",art:"",law:"R.A.",no:"",date:""}],
-  convicted: [{sec:"",art:"",law:"R.A.",no:"",date:""}],
+  charged:   [{text:"",date:""}],
+  convicted: [{text:"",date:""}],
 };
-const LAW_TYPES = ["R.A.","P.D.","B.P.","C.A.","Ordinance"];
+function escAttr(s){
+  return String(s ?? "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+// Old rows were split into Sec./Art./Law/Number fields; a row saved under
+// that shape (no `text`, but a `sec`/`no`) is composed into the same string
+// those fields used to print, so previously-saved profiles still show and
+// print correctly under the free-text field — mirrors offenseRowToText() in
+// renderer/src/utils/caseProfileDefaults.js.
+function migrateOffenseRow(o){
+  if(!o) return {text:"",date:""};
+  if(typeof o.text === "string" && o.text.trim()) return {text:o.text, date:o.date||""};
+  if(o.sec || o.no){
+    let t = o.sec && o.sec.trim() ? `Sec. ${o.sec.trim()}` : "";
+    if(o.art && o.art.trim()) t += `${t?", ":""}Art. ${o.art.trim()}`;
+    if(o.no && o.no.trim()) t += `${t?" of ":""}${o.law||"R.A."} ${o.no.trim()}`;
+    return {text:t, date:o.date||""};
+  }
+  return {text:o.text||"", date:o.date||""};
+}
 function renderOffenses(kind){
   const w = $(kind+"List");
   if(!w) return;
@@ -169,33 +187,25 @@ function renderOffenses(kind){
     const d = document.createElement("div");
     d.className = "brow";
     d.innerHTML = `<span class="tag">#${i+1}</span>
-      <label class="mini">Section<input type="text" id="of_${kind}_sec_${i}" value="${o.sec}" placeholder="5"></label>
-      <label class="mini">Article <span style="font-weight:400">(optional)</span><input type="text" id="of_${kind}_art_${i}" value="${o.art}" placeholder="II"></label>
-      <span class="sep">of</span>
-      <label class="mini">Law<select id="of_${kind}_law_${i}">${LAW_TYPES.map(l=>`<option ${l===o.law?"selected":""}>${l}</option>`).join("")}</select></label>
-      <label class="mini wide">Number<input type="text" id="of_${kind}_no_${i}" value="${o.no}" placeholder="9165"></label>
-      <label class="mini date">Date<input type="date" id="of_${kind}_date_${i}" value="${o.date}"></label>
+      <label class="mini grow">Offense <span style="font-weight:400">(e.g., Sec. 5, Art. II of R.A. 9165)</span><input type="text" id="of_${kind}_text_${i}" value="${escAttr(o.text)}" placeholder="Sec. 5, Art. II of R.A. 9165"></label>
+      <label class="mini date">Date<input type="date" id="of_${kind}_date_${i}" value="${escAttr(o.date)}"></label>
       ${OFFENSES[kind].length>1?`<button type="button" class="xbtn" title="Remove">✕</button>`:""}`;
     w.appendChild(d);
-    ["sec","art","no","date"].forEach(k=>{
+    ["text","date"].forEach(k=>{
       $(`of_${kind}_${k}_${i}`).addEventListener("input", e=>{
         OFFENSES[kind][i][k] = e.target.value;
         offenseChanged(kind);
       });
-    });
-    $(`of_${kind}_law_${i}`).addEventListener("change", e=>{
-      OFFENSES[kind][i].law = e.target.value;
-      offenseChanged(kind);
     });
     const rmBtn = d.querySelector(".xbtn");
     if(rmBtn) rmBtn.addEventListener("click", ()=>removeOffense(kind, i));
   });
   updateOffPreview(kind);
 }
-function addOffense(kind){ OFFENSES[kind].push({sec:"",art:"",law:"R.A.",no:"",date:""}); renderOffenses(kind); }
+function addOffense(kind){ OFFENSES[kind].push({text:"",date:""}); renderOffenses(kind); }
 function removeOffense(kind,i){ OFFENSES[kind].splice(i,1); renderOffenses(kind); }
 function includedOffenses(kind){
-  return OFFENSES[kind].filter(o=>o.sec.trim() || o.no.trim());
+  return OFFENSES[kind].filter(o=>(o.text||"").trim());
 }
 function groupCounts(parts){
   /* identical entries are merged into "(n Cts.) …" */
@@ -209,9 +219,7 @@ function groupCounts(parts){
 function composeOffense(kind){
   const parts = [];
   includedOffenses(kind).forEach(o=>{
-    let t = o.sec.trim() ? `Sec. ${o.sec.trim()}` : "";
-    if(o.art.trim()) t += `${t?", ":""}Art. ${o.art.trim()}`;
-    if(o.no.trim()) t += `${t?" of ":""}${o.law} ${o.no.trim()}`;
+    const t = (o.text||"").trim();
     if(t) parts.push("Viol. of " + t);
   });
   if(!parts.length) return "";
@@ -916,9 +924,14 @@ async function generateDocx(){
   const btn = $("genBtn"), msg = $("genMsg");
   msg.className = "msg";
   if(!val("lastName") && !val("firstName")){
-    msg.textContent = "Please enter the petitioner's name first (Section I).";
+    const text = "Please enter the petitioner's name first (Section I).";
+    msg.textContent = text;
     msg.className = "msg err";
     $("lastName").focus();
+    // Also surface this to the host app (see HOST BRIDGE below) — the React
+    // modal wraps this generator in an <iframe>, where this in-page message
+    // is easy to miss if the field is scrolled out of view.
+    window.parent.postMessage({ type: "psir:error", payload: text }, "*");
     return;
   }
   btn.disabled = true;
@@ -951,8 +964,10 @@ async function generateDocx(){
     msg.textContent = `Done — ${fname} generated. Saving…`;
   }catch(err){
     console.error(err);
-    msg.textContent = "Something went wrong: " + err.message;
+    const text = "Something went wrong: " + err.message;
+    msg.textContent = text;
     msg.className = "msg err";
+    window.parent.postMessage({ type: "psir:error", payload: text }, "*");
   }finally{
     btn.disabled = false;
   }
@@ -1003,8 +1018,8 @@ function applyPrefill(p) {
     const el = document.querySelector(`input[type="radio"][name="${CSS.escape(name)}"][value="${CSS.escape(value)}"]`);
     if (el) { el.checked = true; el.dispatchEvent(new Event("change", { bubbles: true })); }
   });
-  if (p.offenses && Array.isArray(p.offenses.charged) && p.offenses.charged.length) OFFENSES.charged = p.offenses.charged;
-  if (p.offenses && Array.isArray(p.offenses.convicted) && p.offenses.convicted.length) OFFENSES.convicted = p.offenses.convicted;
+  if (p.offenses && Array.isArray(p.offenses.charged) && p.offenses.charged.length) OFFENSES.charged = p.offenses.charged.map(migrateOffenseRow);
+  if (p.offenses && Array.isArray(p.offenses.convicted) && p.offenses.convicted.length) OFFENSES.convicted = p.offenses.convicted.map(migrateOffenseRow);
   renderOffenses("charged");
   renderOffenses("convicted");
   if (Array.isArray(p.sentences) && p.sentences.length) SENTENCES = p.sentences;

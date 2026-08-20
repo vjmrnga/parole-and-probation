@@ -20,6 +20,9 @@ export default function SettingsView() {
   const [savingWacomKey, setSavingWacomKey] = useState(false);
   const [padStatus, setPadStatus] = useState({ connected: false, model: null });
 
+  const [exportingDb, setExportingDb] = useState(false);
+  const [importingDb, setImportingDb] = useState(false);
+
   useEffect(() => {
     setWacomLicenseKey(settings.wacomLicenseKey || '');
   }, [settings.wacomLicenseKey]);
@@ -109,6 +112,44 @@ export default function SettingsView() {
     } else {
       message.error(`Backup failed: ${result.error}`);
     }
+  }
+
+  async function exportDatabase() {
+    setExportingDb(true);
+    try {
+      const result = await window.api.mysqlExportDatabase();
+      if (!result) return;
+      if (result.ok) {
+        message.success(`Database exported to ${result.filePath}`);
+      } else if (result.error) {
+        message.error(`Export failed: ${result.error}`);
+      }
+    } finally {
+      setExportingDb(false);
+    }
+  }
+
+  function importDatabase() {
+    Modal.confirm({
+      title: 'Import database?',
+      content: 'This runs the chosen .sql file directly against the live database. It does not remove existing data first (unless the file itself does), so restoring an older backup can leave duplicate or conflicting rows. Consider exporting a fresh backup before continuing. This cannot be undone — proceed only if you know what the file contains.',
+      okText: 'Choose File & Import',
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setImportingDb(true);
+        try {
+          const result = await window.api.mysqlImportDatabase();
+          if (!result) return;
+          if (result.ok) {
+            message.success(`Database imported from ${result.filePath}`);
+          } else if (result.error) {
+            message.error(`Import failed: ${result.error}`);
+          }
+        } finally {
+          setImportingDb(false);
+        }
+      },
+    });
   }
 
   function switchMode() {
@@ -205,6 +246,19 @@ export default function SettingsView() {
               <Space>
                 <Button onClick={saveBackupSettings}>Save Backup Settings</Button>
                 <Button onClick={runBackupNow}>Run Backup Now</Button>
+              </Space>
+            </Space>
+          </Card>
+
+          <Card title="Database Import / Export" style={{ marginBottom: 20 }}>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Text type="secondary">
+                Export writes the entire MySQL database to a .sql file you choose — useful for moving data to
+                another PC or keeping an on-demand copy. Import runs a .sql file back against this database.
+              </Text>
+              <Space>
+                <Button onClick={exportDatabase} loading={exportingDb}>Export Database…</Button>
+                <Button danger onClick={importDatabase} loading={importingDb}>Import Database…</Button>
               </Space>
             </Space>
           </Card>

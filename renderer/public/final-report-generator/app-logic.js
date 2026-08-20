@@ -172,48 +172,15 @@ function composeCases(){
 function addOffenseRow(){
   var box = $("offenseRows");
   if(!box) return;
-  var d = document.createElement("div"); d.className = "drow";
-  d.innerHTML = '<select class="offMode"><option value="ra">Viol. of R.A.</option><option value="custom">Custom text</option></select>' +
-    '<input type="text" class="offSecs" placeholder="Sec(s). e.g., 11">' +
-    '<input type="text" class="offArt" placeholder="Art. e.g., II">' +
-    '<input type="text" class="offRA" placeholder="R.A. e.g., 9165">' +
-    '<input type="text" class="offCustom" placeholder="e.g., Theft under Art. 308 of the Revised Penal Code" style="display:none">' +
+  var d = document.createElement("div"); d.className = "drow offense";
+  d.innerHTML = '<input type="text" class="offCustom" placeholder="e.g., Theft under Art. 308 of the Revised Penal Code">' +
     '<button type="button" class="rm" title="Remove">✕</button>';
-  var sel = d.querySelector(".offMode");
-  sel.onchange = function(){
-    var c = sel.value === "custom";
-    d.querySelector(".offSecs").style.display = c ? "none" : "";
-    d.querySelector(".offArt").style.display = c ? "none" : "";
-    d.querySelector(".offRA").style.display = c ? "none" : "";
-    d.querySelector(".offCustom").style.display = c ? "" : "none";
-    updateComposerPreviews();
-  };
   d.querySelector(".rm").onclick = function(){ d.remove(); updateComposerPreviews(); };
   box.appendChild(d);
 }
 function composeOffenses(){
-  var out = [], order = {};
-  [].slice.call(document.querySelectorAll("#offenseRows .drow")).forEach(function(d){
-    if(d.querySelector(".offMode").value === "custom"){
-      var t = d.querySelector(".offCustom").value.trim();
-      if(t) out.push({custom: t});
-      return;
-    }
-    var secs = d.querySelector(".offSecs").value.trim();
-    var art = d.querySelector(".offArt").value.trim();
-    var ra = d.querySelector(".offRA").value.trim();
-    if(!secs && !ra) return;
-    var key = art + "|" + ra;
-    if(key in order){ if(secs) out[order[key]].secs.push(secs); }
-    else { order[key] = out.length; out.push({secs: secs ? [secs] : [], art: art, ra: ra}); }
-  });
-  return joinAnd(out.map(function(g){
-    if(g.custom) return g.custom;
-    var secsAll = g.secs.join(" & ");
-    var plural = g.secs.length > 1 || /[&,\-]| and /i.test(secsAll);
-    return "Viol. of " + (plural ? "Secs. " : "Sec. ") + (secsAll || "__") +
-           (g.art ? ", Art. " + g.art : "") + " of R.A. " + (g.ra || "____");
-  }));
+  return joinAnd([].slice.call(document.querySelectorAll("#offenseRows .offCustom"))
+    .map(function(i){ return i.value.trim(); }).filter(Boolean));
 }
 function cityOf(cityId, provId){
   var c = val(cityId), p = val(provId);
@@ -404,7 +371,6 @@ window.addEventListener("DOMContentLoaded", function(){
   $("resetSecDBtn").addEventListener("click", function(){ resetSec("D"); });
   $("resetSecEBtn").addEventListener("click", function(){ resetSec("E"); });
   $("genBtn").addEventListener("click", generateDocx);
-  $("genBtn2").addEventListener("click", generateDocx);
 
   window.parent.postMessage({ type: "finalReport:ready" }, "*");
 });
@@ -605,14 +571,8 @@ function collectSnapshot(){
     fields[el.id] = el.value;
   });
   var cases = [].slice.call(document.querySelectorAll("#caseRows .caseInput")).map(function(i){ return i.value; });
-  var offenses = [].slice.call(document.querySelectorAll("#offenseRows .drow")).map(function(d){
-    return {
-      mode: d.querySelector(".offMode").value,
-      secs: d.querySelector(".offSecs").value,
-      art: d.querySelector(".offArt").value,
-      ra: d.querySelector(".offRA").value,
-      custom: d.querySelector(".offCustom").value
-    };
+  var offenses = [].slice.call(document.querySelectorAll("#offenseRows .offCustom")).map(function(i){
+    return { custom: i.value };
   });
   var media = {};
   MEDIA_KEYS.forEach(function(k){
@@ -640,12 +600,16 @@ function applyPrefill(p){
       addOffenseRow();
       var rows = document.querySelectorAll("#offenseRows .drow");
       var d = rows[rows.length - 1];
-      d.querySelector(".offMode").value = o.mode || "ra";
-      d.querySelector(".offSecs").value = o.secs || "";
-      d.querySelector(".offArt").value = o.art || "";
-      d.querySelector(".offRA").value = o.ra || "";
-      d.querySelector(".offCustom").value = o.custom || "";
-      d.querySelector(".offMode").dispatchEvent(new Event("change", {bubbles:true}));
+      // Older saved drafts may carry the retired "Viol. of R.A." structured
+      // mode (secs/art/ra) instead of custom text — fall back to composing
+      // the same "Viol. of Sec(s). X, Art. Y of R.A. Z" line those used to
+      // print, so those drafts don't come back blank.
+      var custom = o.custom;
+      if(!custom && (o.secs || o.ra)){
+        custom = "Viol. of " + (o.secs ? "Sec. " + o.secs : "__") +
+                 (o.art ? ", Art. " + o.art : "") + " of R.A. " + (o.ra || "____");
+      }
+      d.querySelector(".offCustom").value = custom || "";
     });
   }
   if(p.media){

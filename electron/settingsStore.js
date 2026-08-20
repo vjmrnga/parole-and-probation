@@ -15,6 +15,7 @@ const store = new Store({
     backupSchedule: '0 2 * * *', // daily at 02:00
     backupRetentionCount: 14,
     mysqldumpPath: '',
+    mysqlPath: '',
     autoLaunchEnabled: false,
 
     // Branch Office only

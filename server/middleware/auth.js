@@ -42,7 +42,7 @@ function authenticate(settingsStore) {
       const [rows] = await db
         .getPool()
         .query(
-          `SELECT id, username, first_name, middle_name, last_name, title,
+          `SELECT id, username, email, first_name, middle_name, last_name, title,
                   ${userNameSql('users')} AS full_name, role, is_active, active_session_id
            FROM users WHERE id = ?`,
           [payload.sub]

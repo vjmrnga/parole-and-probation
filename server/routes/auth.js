@@ -4,6 +4,11 @@ const crypto = require('crypto');
 const db = require('../db');
 const { signToken, authenticate } = require('../middleware/auth');
 const { composeUserName } = require('../../shared/nameUtils');
+const { USER_TITLES } = require('../../shared/statusEnums');
+const { PASSWORD_POLICY_DESCRIPTION, isPasswordValid } = require('../../shared/passwordPolicy');
+const { duplicateFieldMessage } = require('../utils/dbErrors');
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Matches the JWT's own expiresIn (see signToken) — a session recorded on
 // users.active_session_id older than this is already dead as far as the
@@ -83,6 +88,58 @@ function buildAuthRouter(settingsStore) {
     }
   });
 
+  // Self-service registration: anyone can request an account, but it can't
+  // sign in until an admin approves it in Manage Users (see users.js's
+  // /:id/approve and /:id/reject). Always defaults to the lowest-privilege
+  // role — the requester can't grant themselves 'admin' or 'staff'; an admin
+  // assigns the real role at approval time (or later via PATCH /users/:id).
+  router.post('/signup', async (req, res, next) => {
+    try {
+      const { username, email, password, confirmPassword, firstName, middleName, lastName, title } = req.body || {};
+      if (!username || !email || !password || !firstName || !lastName) {
+        return res.status(400).json({ error: 'username, email, password, firstName, and lastName are required' });
+      }
+      if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Enter a valid email address' });
+      if (!isPasswordValid(password)) return res.status(400).json({ error: PASSWORD_POLICY_DESCRIPTION });
+      // confirmPassword is optional here (the client already blocks submit on
+      // a mismatch) but re-checked in case something calls this API directly.
+      if (confirmPassword !== undefined && confirmPassword !== password) {
+        return res.status(400).json({ error: 'Passwords do not match' });
+      }
+      if (title && !USER_TITLES.includes(title)) return res.status(400).json({ error: `title must be one of: ${USER_TITLES.join(', ')}` });
+
+      const passwordHash = await bcrypt.hash(password, 12);
+      await db
+        .getPool()
+        .query(
+          `INSERT INTO users (username, email, password_hash, first_name, middle_name, last_name, title, role, approval_status, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'officer', 'pending', 0)`,
+          [username, email, passwordHash, firstName, middleName || null, lastName, title || null]
+        );
+      res.status(201).json({ ok: true, message: 'Account request submitted. An administrator needs to approve it before you can sign in.' });
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: duplicateFieldMessage(err) });
+      next(err);
+    }
+  });
+
+  // Live "is this username taken?" check for the sign-up form (checked
+  // on blur, not on every keystroke — see LoginScreen.jsx) so a clash
+  // surfaces before the user fills out the rest of the form, rather than
+  // only after submitting. Not authoritative by itself — the /signup
+  // insert above is still guarded by the UNIQUE column, since a name could
+  // be claimed in the gap between this check and that submit.
+  router.get('/check-username', async (req, res, next) => {
+    try {
+      const username = (req.query.username || '').trim();
+      if (!username) return res.json({ available: false });
+      const [rows] = await db.getPool().query('SELECT id FROM users WHERE username = ?', [username]);
+      res.json({ available: rows.length === 0 });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post('/login', async (req, res, next) => {
     try {
       const { username, password, deviceName, force } = req.body || {};
@@ -90,10 +147,21 @@ function buildAuthRouter(settingsStore) {
 
       const [rows] = await db.getPool().query('SELECT * FROM users WHERE username = ?', [username]);
       const user = rows[0];
-      if (!user || !user.is_active) return res.status(401).json({ error: 'Invalid credentials' });
+      if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
       const ok = await bcrypt.compare(password, user.password_hash);
       if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+
+      // Checked after the password so a wrong password always looks like
+      // "Invalid credentials" regardless of approval state — no signal to a
+      // guesser about whether an account is pending/rejected.
+      if (user.approval_status === 'pending') {
+        return res.status(403).json({ error: 'Your account is awaiting administrator approval.', code: 'PENDING_APPROVAL' });
+      }
+      if (user.approval_status === 'rejected') {
+        return res.status(403).json({ error: 'Your account request was declined. Contact an administrator.', code: 'REGISTRATION_REJECTED' });
+      }
+      if (!user.is_active) return res.status(401).json({ error: 'Invalid credentials' });
 
       // Single-session enforcement: someone is (or recently was) signed in
       // as this user on a different device. Refuse the plain login and let
@@ -112,6 +180,7 @@ function buildAuthRouter(settingsStore) {
       const publicUser = {
         id: user.id,
         username: user.username,
+        email: user.email,
         first_name: user.first_name,
         middle_name: user.middle_name,
         last_name: user.last_name,

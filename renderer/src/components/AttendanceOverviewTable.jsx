@@ -334,6 +334,7 @@ export default function AttendanceOverviewTable() {
           <DatePicker
             picker="month"
             style={{ width: '100%' }}
+            format="MM/YYYY"
             value={month}
             onChange={(v) => v && setMonth(v)}
             allowClear={false}

@@ -141,6 +141,28 @@
   .copies[value="0"],.copies.zero{color:var(--ink-3);background:#f7f8f9}
   tfoot td{padding-top:9px;font-size:11.5px;color:var(--ink-3)}
 
+  /* ---------- recipient addresses ---------- */
+  #recipDetails summary{list-style:none}
+  #recipDetails summary::-webkit-details-marker{display:none}
+  #recipDetails summary::before{content:"▸ ";color:var(--ink-3);font-size:10px}
+  #recipDetails[open] summary::before{content:"▾ "}
+  .recip-row{padding:12px 0;border-top:1px solid var(--rule-2)}
+  .recip-row:first-child{border-top:0}
+  .rr-hd{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+  .rr-hd b{font-size:12.5px}
+  .rr-reset{border:0;background:0;color:var(--ink-3);font-size:11.5px;text-decoration:underline;padding:0}
+  .rr-reset:hover{color:var(--seal-red)}
+  .recip-block-lbl{font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:6px 0 4px}
+  .recip-row input{
+    width:100%;padding:6px 8px;margin-bottom:5px;border:1px solid var(--rule);border-radius:3px;
+    font-size:12.5px;background:#fff;
+  }
+  .recip-row input::placeholder{color:var(--ink-3);font-style:italic}
+  #recipSave{padding:8px 14px;border:1px solid var(--rule);background:#fff;border-radius:3px;font-weight:600;font-size:13px}
+  #recipSave:hover{border-color:var(--navy);color:var(--navy)}
+  #recipStatus.ok{color:var(--ok)}
+  #recipStatus.err{color:var(--seal-red)}
+
   /* ---------- options ---------- */
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .fld label{display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:4px}
@@ -315,6 +337,19 @@
           </div>
         </div>
         <p class="hint" style="margin-top:10px">Saved PDFs are stored automatically, sorted by recipient then date — see the app's Saved PDFs tab. Transmittal cover letters are for printing only.</p>
+      </section>
+
+      <!-- 4. recipient addresses -->
+      <section>
+        <details id="recipDetails">
+          <summary class="lbl" style="margin:0;cursor:pointer;display:inline-block"><span class="n">04</span>Recipient addresses</summary>
+          <p class="hint" style="margin-top:8px">Edit if an office's director, head, or ATTN contact has changed. Leave a line blank to keep the built-in default, shown as its placeholder. Shared with every officer — saved changes apply everywhere.</p>
+          <div id="recipList" style="margin-top:6px"></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:10px">
+            <button id="recipSave" type="button">Save changes</button>
+            <span id="recipStatus" class="hint" style="margin:0"></span>
+          </div>
+        </details>
       </section>
     </div>
 

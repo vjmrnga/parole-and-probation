@@ -16,6 +16,11 @@ export const GENDER_PREF_OPTIONS = ['Heterosexual', 'Homosexual', 'Bisexual'];
 
 export const LAW_TYPES = ['R.A.', 'P.D.', 'B.P.', 'C.A.', 'Ordinance'];
 
+// Mirrors the PSIR Generator's <select id="sentCourtType"> (and its main
+// <select id="courtType">) options — used by the Sentencing Court
+// AutoComplete on CaseProfileFields.
+export const COURT_TYPE_OPTIONS = ['RTC', 'MTC', 'MTCC', 'MCTC', 'FC'];
+
 // [agency name, default/placeholder status text] — fixed order, matches the
 // generator's own AGENCIES list in renderer/public/psir-generator/template-data.js.
 export const PRIOR_RECORD_AGENCIES = [

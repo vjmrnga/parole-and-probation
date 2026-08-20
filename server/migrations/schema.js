@@ -1,6 +1,6 @@
 // Builds the DDL from shared/statusEnums.js so the STAGE/STATUS ENUM columns
 // can never drift from the fixed vocab used everywhere else in the code.
-const { STAGES, STATUSES, ROLES, USER_TITLES, OFFENSE_TYPES, HISTORY_FIELDS } = require('../../shared/statusEnums');
+const { STAGES, STATUSES, ROLES, APPROVAL_STATUSES, USER_TITLES, OFFENSE_TYPES, HISTORY_FIELDS } = require('../../shared/statusEnums');
 const { splitName } = require('../../shared/nameUtils');
 
 function sqlEnum(values) {
@@ -72,6 +72,17 @@ const NEW_USER_COLUMNS = [
   // Job/rank title (PPO1, SrPPO, …) — one of shared/statusEnums.js's
   // USER_TITLES. Optional (the bootstrap admin may have none).
   { name: 'title', ddl: `${sqlEnum(USER_TITLES)} NULL` },
+  // Self-service sign-up approval gate (see server/routes/auth.js's
+  // /signup). Defaults to 'approved' so every pre-existing row — and every
+  // account an admin creates directly via POST /users — needs no review.
+  // Only /signup inserts 'pending'.
+  { name: 'approval_status', ddl: `${sqlEnum(APPROVAL_STATUSES)} NOT NULL DEFAULT 'approved'` },
+  // Contact email — required at self-signup, optional when an admin creates
+  // an account directly. UNIQUE (like username) so two accounts can't share
+  // one inbox; NULL is exempt from the uniqueness check in MySQL, which is
+  // what lets every pre-existing row (and any admin-created row that skips
+  // it) go in without one.
+  { name: 'email', ddl: 'VARCHAR(150) NULL UNIQUE' },
 ];
 
 // Edit-in-place check-out lock, shared by every table that stores a
@@ -123,11 +134,13 @@ function buildSchemaStatements() {
       id            INT AUTO_INCREMENT PRIMARY KEY,
       username      VARCHAR(50)  NOT NULL UNIQUE,
       password_hash VARCHAR(255) NOT NULL,
+      email         VARCHAR(150) NULL UNIQUE,
       first_name    VARCHAR(100) NOT NULL,
       middle_name   VARCHAR(100) NULL,
       last_name     VARCHAR(100) NOT NULL,
       title         ${sqlEnum(USER_TITLES)} NULL,
       role          ${sqlEnum(ROLES)} NOT NULL DEFAULT 'officer',
+      approval_status ${sqlEnum(APPROVAL_STATUSES)} NOT NULL DEFAULT 'approved',
       is_active     TINYINT(1) NOT NULL DEFAULT 1,
       active_session_id         VARCHAR(64) NULL,
       active_session_device     VARCHAR(150) NULL,
@@ -264,6 +277,26 @@ function buildSchemaStatements() {
       officer_title VARCHAR(150) NULL,
       sign_place    VARCHAR(200) NULL,
       updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB`,
+
+    // Per-recipient overrides for the Records Check generator's TO/ATTN header
+    // lines (renderer/public/records-check-generator/rc-render.js's FORMS
+    // array carries the built-in defaults). A row only exists for a recipient
+    // that has at least one override; a NULL cell falls back to that form's
+    // built-in default line — see server/routes/recordsCheck.js. Offices are
+    // addressed by name here mainly because directors/heads get reassigned
+    // without a code change to match (e.g. NBI's TO/ATTN block).
+    `CREATE TABLE IF NOT EXISTS records_check_recipients (
+      form_id     VARCHAR(20) PRIMARY KEY,
+      to_line1    VARCHAR(150) NULL,
+      to_line2    VARCHAR(150) NULL,
+      to_line3    VARCHAR(150) NULL,
+      attn_line1  VARCHAR(150) NULL,
+      attn_line2  VARCHAR(150) NULL,
+      attn_line3  VARCHAR(150) NULL,
+      updated_by  INT NULL,
+      updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (updated_by) REFERENCES users(id)
     ) ENGINE=InnoDB`,
 
     `CREATE TABLE IF NOT EXISTS status_history (

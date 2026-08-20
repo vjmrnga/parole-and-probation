@@ -6,9 +6,52 @@ const { authenticate } = require('../middleware/auth');
 const { probationerNameSql, userNameSql } = require('../../shared/nameUtils');
 const { lockSelectSql } = require('./lockHelpers');
 const { mountEditRoutes } = require('./editableDoc');
+// Mirrors the `id`s in renderer/public/records-check-generator/rc-render.js's
+// FORMS array. Kept as a plain list rather than require()-ing that file
+// directly — it lives under renderer/public, which electron-builder's
+// `files` list (package.json) never bundles into the packaged app (only
+// renderer/dist is), so that require crashed the packaged app on every
+// launch. Update this list if a recipient is added/removed from FORMS.
+const RC_FORM_IDS = new Set([
+  'RTC', 'MTCC', 'CITYPROS', 'NBI', 'PNP_TAL', 'PNP_MING', 'RTC_CC', 'MTCC_CC', 'PROV_CC', 'BRGY',
+]);
 
 function safeSeg(s) {
   return String(s).replace(/[\\/:*?"<>|]+/g, '-').trim();
+}
+
+// --- Recipient header overrides (director/ATTN names that change over time) ---
+const RECIPIENT_LINE_COLS = {
+  to: ['to_line1', 'to_line2', 'to_line3'],
+  attn: ['attn_line1', 'attn_line2', 'attn_line3'],
+};
+const ALL_RECIPIENT_COLS = [...RECIPIENT_LINE_COLS.to, ...RECIPIENT_LINE_COLS.attn];
+
+function cleanLine(v) {
+  const s = String(v == null ? '' : v).trim();
+  return s === '' ? null : s;
+}
+
+// Row -> { to: [3]|omitted, attn: [3]|omitted }, only non-null lines kept, so
+// the generator can tell "no override" (undefined) apart from "override with
+// a blank line" (which cleanLine already prevents from being stored anyway).
+function rowToOverride(row) {
+  const out = {};
+  for (const block of Object.keys(RECIPIENT_LINE_COLS)) {
+    const lines = RECIPIENT_LINE_COLS[block].map((col) => row[col]);
+    if (lines.some((v) => v != null)) out[block] = lines;
+  }
+  return out;
+}
+
+async function loadRecipientOverrides(pool) {
+  const [rows] = await pool.query('SELECT * FROM records_check_recipients');
+  const out = {};
+  for (const row of rows) {
+    const override = rowToOverride(row);
+    if (Object.keys(override).length) out[row.form_id] = override;
+  }
+  return out;
 }
 
 // recordsCheckDir: absolute path (app.getPath('userData')/records-check-pdfs)
@@ -93,6 +136,57 @@ function buildRecordsCheckRouter(settingsStore, recordsCheckDir) {
         ids.push(result.insertId);
       }
       res.status(201).json({ ok: true, count: ids.length, ids });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/recipients', async (_req, res, next) => {
+    try {
+      res.json(await loadRecipientOverrides(db.getPool()));
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Body: { recipients: { [formId]: { to: [3 strings], attn: [3 strings]|null } } }.
+  // Full replace, one recipient at a time: a blank/whitespace line reverts
+  // that line to rc-render.js's built-in default (stored as NULL); a
+  // recipient left with all 6 lines blank has its row removed entirely
+  // rather than kept around empty. Any authenticated user may save — these
+  // are the same freely-editable-per-run header details as the Chief/IO
+  // fields already on this screen, just persisted so they don't reset.
+  router.put('/recipients', async (req, res, next) => {
+    try {
+      const { recipients } = req.body || {};
+      if (!recipients || typeof recipients !== 'object') {
+        return res.status(400).json({ error: 'recipients is required' });
+      }
+      const pool = db.getPool();
+      for (const formId of Object.keys(recipients)) {
+        if (!RC_FORM_IDS.has(formId)) {
+          return res.status(400).json({ error: `Unknown recipient: ${formId}` });
+        }
+        const entry = recipients[formId] || {};
+        const values = {};
+        RECIPIENT_LINE_COLS.to.forEach((col, i) => { values[col] = cleanLine(entry.to && entry.to[i]); });
+        RECIPIENT_LINE_COLS.attn.forEach((col, i) => { values[col] = cleanLine(entry.attn && entry.attn[i]); });
+
+        if (ALL_RECIPIENT_COLS.every((col) => values[col] == null)) {
+          await pool.query('DELETE FROM records_check_recipients WHERE form_id = ?', [formId]);
+          continue;
+        }
+        const cols = ['form_id', ...ALL_RECIPIENT_COLS, 'updated_by'];
+        const placeholders = cols.map(() => '?').join(', ');
+        const updateCols = [...ALL_RECIPIENT_COLS, 'updated_by']
+          .map((col) => `${col} = VALUES(${col})`).join(', ');
+        await pool.query(
+          `INSERT INTO records_check_recipients (${cols.join(', ')}) VALUES (${placeholders})
+           ON DUPLICATE KEY UPDATE ${updateCols}`,
+          [formId, ...ALL_RECIPIENT_COLS.map((col) => values[col]), req.user.id]
+        );
+      }
+      res.json(await loadRecipientOverrides(pool));
     } catch (err) {
       next(err);
     }

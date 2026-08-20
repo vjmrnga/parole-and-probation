@@ -114,7 +114,6 @@ export default function ImportCasesModal({ open, onClose, onImported }) {
           offense: row.offense,
           courtBranch: row.courtBranch,
           judge: row.judge,
-          convictionDate: row.convictionDate,
           ...(isAdmin ? { assignedOfficerId: row.assignedOfficerId } : {}),
         });
 

@@ -10,6 +10,27 @@ import { composeName } from '../utils/composeName.js';
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
+// Mirrors composeOffense() in psir-generator/app-logic.js: joins the "Charged
+// With" list's citation texts the same way the PSIR does — identical entries
+// merged into "(n Cts.) …", multiple distinct entries numbered "(1) …; and
+// (2) …".
+function composeCharged(charged) {
+  const parts = (charged || [])
+    .map((o) => (o && o.text ? o.text.trim() : ''))
+    .filter(Boolean)
+    .map((t) => `Viol. of ${t}`);
+  if (!parts.length) return '';
+  const uniq = [];
+  parts.forEach((p) => {
+    const found = uniq.find((u) => u.text === p);
+    if (found) found.n += 1; else uniq.push({ text: p, n: 1 });
+  });
+  const grouped = uniq.map((u) => (u.n > 1 ? `${u.text} (${u.n} Cts.)` : u.text));
+  if (grouped.length === 1) return grouped[0];
+  const items = grouped.map((p, i) => `(${i + 1}) ${p}`);
+  return `${items.slice(0, -1).join('; ')}; and ${items[items.length - 1]}`;
+}
+
 // Maps a probationer (+ its psir_profile snapshot) onto the exact record
 // shape renderer/public/records-check-generator/rc-render.js expects — see
 // its FIELDS table. Birthdate is sent as a real Date (postMessage's
@@ -33,17 +54,20 @@ function buildRec(p) {
     AGE: p.age != null ? String(p.age) : '',
     'CIVIL STATUS': p.marital_status || '',
     'DATE OF BIRTH': p.birthdate ? new Date(p.birthdate) : null,
-    'PLACE OF BIRTH': '',
+    'PLACE OF BIRTH': f.placeOfBirth || '',
     'PRESENT ADDRESS': p.address || '',
     'PERMANENT ADDRESS': f.permanentAddress || p.address || '',
     'CRIMINAL CASE NO./S': p.case_number || '',
-    OFFENSES: p.offense || '',
+    // Sourced from Case Information's "Charged With" list — same list the
+    // PSIR/Final Report docx print — with a fallback to the legacy free-text
+    // Offense column for older cases imported before that list existed.
+    OFFENSES: composeCharged(profile.offenses?.charged) || p.offense || '',
     COURT: p.court_branch || '',
     'NAME OF SPOUSE': f.spouse || '',
     'NAME OF FATHER': f.fatherName || '',
     'NAME OF MOTHER': f.motherName || '',
     IO: p.assigned_officer_name || '',
-    BARANGAY: '',
+    BARANGAY: f.addressBarangay || '',
     LAST_NAME: name.lastName,
     FIRST_NAME: name.firstName,
     MIDDLE_NAME: name.middleName,
@@ -181,6 +205,7 @@ function SavedFilesTab({ rows, loading, busyId, isAdmin, userId, editor, onRefre
           placeholder={['Generated from', 'Generated to']}
           value={dateRange}
           onChange={setDateRange}
+          format="MM/DD/YYYY"
         />
       </Space>
 
@@ -238,6 +263,18 @@ export default function RecordsCheckView() {
       message.error(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Recipient TO/ATTN header overrides (director/ATTN names change over
+  // time — see server/routes/recordsCheck.js) — fetched once per ready and
+  // handed to the generator the same way the masterlist is.
+  async function loadAndSendRecipients() {
+    try {
+      const recipients = await ApiClient.get('/records-check/recipients');
+      iframeRef.current?.contentWindow?.postMessage({ type: 'rc:setRecipients', payload: { recipients } }, '*');
+    } catch (err) {
+      message.error(err.message);
     }
   }
 
@@ -305,6 +342,7 @@ export default function RecordsCheckView() {
 
       if (msg.type === 'rc:ready') {
         loadAndSend();
+        loadAndSendRecipients();
       } else if (msg.type === 'rc:savePdfs') {
         const { files: toSave } = msg.payload || {};
         ApiClient.post('/records-check/batch', { files: toSave })
@@ -314,6 +352,15 @@ export default function RecordsCheckView() {
           })
           .catch((err) => {
             iframeRef.current?.contentWindow?.postMessage({ type: 'rc:saveResult', payload: { ok: false, error: err.message } }, '*');
+          });
+      } else if (msg.type === 'rc:saveRecipients') {
+        const { recipients } = msg.payload || {};
+        ApiClient.put('/records-check/recipients', { recipients })
+          .then((result) => {
+            iframeRef.current?.contentWindow?.postMessage({ type: 'rc:recipientsSaved', payload: { ok: true, recipients: result } }, '*');
+          })
+          .catch((err) => {
+            iframeRef.current?.contentWindow?.postMessage({ type: 'rc:recipientsSaved', payload: { ok: false, error: err.message } }, '*');
           });
       }
     }

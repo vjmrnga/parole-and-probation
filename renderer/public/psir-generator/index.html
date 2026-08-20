@@ -182,6 +182,8 @@
         color:var(--muted);letter-spacing:.2px;text-transform:uppercase}
   .brow .mini input,.brow .mini select{width:82px;padding:7px 8px;font-size:14px}
   .brow .mini.wide input{width:118px}
+  .brow .mini.grow{flex:1 1 260px}
+  .brow .mini.grow input{width:100%}
   .brow .tag{font-weight:700;color:var(--gold);align-self:center;font-size:13px}
   .brow .sep{color:var(--muted);align-self:center;font-size:12.5px;padding-bottom:2px}
   .brow .xbtn{align-self:center}
@@ -341,13 +343,13 @@
       <h2><span class="num">II.</span>Criminal History</h2>
       <h3 class="sub">A. Present Offense</h3>
       <div class="grid">
-        <div class="f c12"><label>Charged With <span class="opt">— prints as &ldquo;Viol. of Sec. ___&rdquo;; each offense has its own date; add a row per offense &mdash; identical rows are combined as &ldquo;(2 Cts.) &hellip;&rdquo;</span></label>
+        <div class="f c12"><label>Charged With <span class="opt">— prints as &ldquo;Viol. of &hellip;&rdquo; followed by what you type below (e.g. &ldquo;Sec. 5, Art. II of R.A. 9165&rdquo;); each offense has its own date; add a row per offense &mdash; identical rows are combined as &ldquo;(2 Cts.) &hellip;&rdquo;</span></label>
           <div id="chargedList"></div>
           <button type="button" class="btn ghost" id="addChargedBtn" style="align-self:flex-start;margin-top:4px">+ Add offense</button>
           <div class="eghint" id="chargedPreview"></div>
         </div>
         
-        <div class="f c12"><label>Convicted Of <span class="opt">— prints as &ldquo;Viol. of Sec. ___&rdquo;; each offense has its own date; add a row per offense &mdash; identical rows are combined as &ldquo;(2 Cts.) &hellip;&rdquo;</span></label>
+        <div class="f c12"><label>Convicted Of <span class="opt">— prints as &ldquo;Viol. of &hellip;&rdquo; followed by what you type below (e.g. &ldquo;Sec. 5, Art. II of R.A. 9165&rdquo;); each offense has its own date; add a row per offense &mdash; identical rows are combined as &ldquo;(2 Cts.) &hellip;&rdquo;</span></label>
           <div id="convictedList"></div>
           <button type="button" class="btn ghost" id="addConvictedBtn" style="align-self:flex-start;margin-top:4px">+ Add offense</button>
           <div class="eghint" id="convictedPreview"></div>
@@ -377,7 +379,7 @@
         </div>
         <div class="f c6 det-only" style="display:none"><label>Detention Facility <span class="opt">(optional — prints as &ldquo;Detention &ndash; ___&rdquo;)</span></label><input type="text" id="detFacility" placeholder="e.g., BJMP Minglanilla"></div>
         <div class="f c6 ror-only" style="display:none"><label>ROR Custodian</label><input type="text" id="rorCustodian"></div>
-        <div class="f c6"><label>Address <span class="opt">(custodial status &mdash; bail / detention / custodian address)</span></label><input type="text" id="custodialAddress"></div>
+        <div class="f c6"><label>Address <span class="opt">(custodial status &mdash; bail / custodian address)</span></label><input type="text" id="custodialAddress"></div>
       </div>
 
       <h3 class="sub">B. Prior and Pending Records</h3>

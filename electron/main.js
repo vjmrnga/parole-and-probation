@@ -19,6 +19,7 @@ const backupScheduler = require('../server/backup/scheduler');
 const { buildProbationersWorkbook } = require('../shared/reportBuilder');
 const { buildAttendanceOverviewWorkbook } = require('../shared/attendanceOverviewReportBuilder');
 const statusEnums = require('../shared/statusEnums');
+const passwordPolicy = require('../shared/passwordPolicy');
 const documentChecklist = require('../shared/documentChecklist');
 const { parseProbationerImport, buildImportTemplate } = require('./importParser');
 const { parseActiveSupervisionImport } = require('./activeSupervisionImportParser');
@@ -237,7 +238,13 @@ function setupAutoUpdater() {
   if (!app.isPackaged) return; // no app-update.yml in dev; nothing to check against
 
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // Never silently install on quit: in Head Office mode the app is kept
+  // alive in the tray, so an OS shutdown also delivers a quit signal to it.
+  // With this left true, electron-updater would silently run the installer
+  // and relaunch the app right in the middle of Windows shutting down,
+  // which made the PC look like it was turning itself back on. Only the
+  // explicit "Restart now" button below (quitAndInstall) should install.
+  autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-update error:', err);
@@ -334,7 +341,11 @@ if (!gotLock) {
   });
 
   // ---- IPC: settings ----
-  ipcMain.handle('get-enums', () => ({ ...statusEnums, DOCUMENT_CHECKLIST_ITEMS: documentChecklist.DOCUMENT_CHECKLIST_ITEMS }));
+  ipcMain.handle('get-enums', () => ({
+    ...statusEnums,
+    DOCUMENT_CHECKLIST_ITEMS: documentChecklist.DOCUMENT_CHECKLIST_ITEMS,
+    PASSWORD_POLICY_DESCRIPTION: passwordPolicy.PASSWORD_POLICY_DESCRIPTION,
+  }));
   ipcMain.handle('get-settings', () => settingsStore.getAll());
   ipcMain.handle('set-setting', (_e, { key, value }) => {
     settingsStore.set(key, value);
@@ -697,6 +708,39 @@ if (!gotLock) {
     try {
       const filePath = await backupScheduler.runBackup(settingsStore);
       return { ok: true, filePath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  // ---- IPC: manual MySQL export/import (Head Office) ----
+  ipcMain.handle('mysql-export-database', async () => {
+    const database = settingsStore.get('mysqlConfig')?.database || 'parole_probation';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export MySQL Database',
+      defaultPath: `${database}_${timestamp}.sql`,
+      filters: [{ name: 'SQL File', extensions: ['sql'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false };
+    try {
+      const filePath = await backupScheduler.dumpToFile(settingsStore, result.filePath);
+      return { ok: true, filePath };
+    } catch (err) {
+      return { ok: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('mysql-import-database', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Choose SQL file to import',
+      filters: [{ name: 'SQL File', extensions: ['sql'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { ok: false };
+    try {
+      await backupScheduler.restoreFromFile(settingsStore, result.filePaths[0]);
+      return { ok: true, filePath: result.filePaths[0] };
     } catch (err) {
       return { ok: false, error: err.message };
     }

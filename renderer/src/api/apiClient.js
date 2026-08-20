@@ -144,6 +144,13 @@ async function loginOffline(username, password) {
   return user;
 }
 
+// Public (no token) self-registration — see server/routes/auth.js's /signup.
+// Never signs the requester in: the account sits 'pending' until an admin
+// approves it in Manage Users, so there's no session to establish here.
+async function signup({ username, email, password, confirmPassword, firstName, middleName, lastName, title }) {
+  return request('POST', '/auth/signup', { username, email, password, confirmPassword, firstName, middleName, lastName, title });
+}
+
 async function bootstrapAdmin(username, password, { firstName, middleName, lastName }) {
   const deviceName = await window.api.getDeviceName();
   const data = await request('POST', '/auth/bootstrap-admin', {
@@ -175,6 +182,7 @@ export const ApiClient = {
   request,
   login,
   loginOffline,
+  signup,
   bootstrapAdmin,
   logout,
   clearLocalSession: clearSession,

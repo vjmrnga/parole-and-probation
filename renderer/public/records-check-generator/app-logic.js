@@ -45,6 +45,7 @@
     queue: $('queue'), qn: $('qn'), clearQ: $('clearQ'),
     routing: $('routing'), dateIn: $('dateIn'), paperIn: $('paperIn'),
     chiefIn: $('chiefIn'), sigIn: $('sigIn'), txIn: $('txIn'), ioIn: $('ioIn'), ioList: $('ioList'),
+    recipList: $('recipList'), recipSave: $('recipSave'), recipStatus: $('recipStatus'),
     btnPdf: $('btnPdf'), btnPrint: $('btnPrint'), btnTx: $('btnTx'), btnBoth: $('btnBoth'),
     pv: $('pv'), pvBlank: $('pvBlank'), pvMeta: $('pvMeta'), pvRefresh: $('pvRefresh'),
     log: $('log'), busy: $('busy'), busyTxt: $('busyTxt'), printFrame: $('printFrame')
@@ -183,6 +184,99 @@
         el.results.appendChild(b);
       });
   });
+
+  /* ---------------- recipient addresses ----------------
+     Per-line overrides for each recipient's TO/ATTN block (director/ATTN
+     names change over time — the built-in defaults live in rc-render.js's
+     FORMS array). Persisted through the host app to MySQL, shared by every
+     officer — see server/routes/recordsCheck.js's GET/PUT /recipients. */
+  var recipDefaults = {};                     // formId -> { to:[3], attn:[3]|null } — snapshot before any override is applied
+  F.FORMS.forEach(function (f) {
+    recipDefaults[f.id] = { to: f.to.slice(), attn: f.attn ? f.attn.slice() : null };
+  });
+  var recipOverrides = {};                     // formId -> { to:[3 or ''...], attn:[...]|undefined } — from the server
+
+  function recipBlock(label, block, defaults) {
+    var wrap = document.createElement('div');
+    var lbl = document.createElement('div'); lbl.className = 'recip-block-lbl'; lbl.textContent = label + ':';
+    wrap.appendChild(lbl);
+    for (var i = 0; i < 3; i++) {
+      var inp = document.createElement('input');
+      inp.dataset.block = block; inp.dataset.line = String(i);
+      inp.placeholder = defaults[i] || '';
+      inp.autocomplete = 'off';
+      inp.setAttribute('aria-label', label + ' line ' + (i + 1));
+      wrap.appendChild(inp);
+    }
+    return wrap;
+  }
+
+  function drawRecipients() {
+    el.recipList.innerHTML = '';
+    F.FORMS.forEach(function (f) {
+      var def = recipDefaults[f.id];
+      var row = document.createElement('div');
+      row.className = 'recip-row';
+      row.dataset.form = f.id;
+
+      var hd = document.createElement('div'); hd.className = 'rr-hd';
+      var b = document.createElement('b'); b.textContent = f.label;
+      var reset = document.createElement('button');
+      reset.type = 'button'; reset.className = 'rr-reset'; reset.textContent = 'Reset to default';
+      reset.onclick = function () {
+        Array.prototype.forEach.call(row.querySelectorAll('input'), function (inp) { inp.value = ''; });
+        recipStatus('');
+      };
+      hd.appendChild(b); hd.appendChild(reset);
+      row.appendChild(hd);
+
+      row.appendChild(recipBlock('TO', 'to', def.to));
+      if (def.attn) row.appendChild(recipBlock('ATTN', 'attn', def.attn));
+
+      el.recipList.appendChild(row);
+    });
+  }
+
+  // Reflects recipOverrides (as loaded from, or just saved to, the server)
+  // into the input values — blank input means "no override for this line".
+  function fillRecipientInputs() {
+    Array.prototype.forEach.call(el.recipList.children, function (row) {
+      var ov = recipOverrides[row.dataset.form] || {};
+      Array.prototype.forEach.call(row.querySelectorAll('input'), function (inp) {
+        var arr = ov[inp.dataset.block];
+        inp.value = (arr && arr[+inp.dataset.line]) || '';
+      });
+    });
+  }
+
+  // Merges recipOverrides line-by-line onto F.FORMS[i].to/.attn in place.
+  // renderForm/renderTransmittal (rc-render.js) already just read
+  // form.to/form.attn, so nothing there needs to change.
+  function applyRecipientOverrides() {
+    F.FORMS.forEach(function (f) {
+      var def = recipDefaults[f.id], ov = recipOverrides[f.id] || {};
+      f.to = def.to.map(function (line, i) { return (ov.to && ov.to[i]) || line; });
+      if (def.attn) f.attn = def.attn.map(function (line, i) { return (ov.attn && ov.attn[i]) || line; });
+    });
+  }
+
+  function recipStatus(text, cls) {
+    el.recipStatus.textContent = text || '';
+    el.recipStatus.className = 'hint' + (cls ? ' ' + cls : '');
+  }
+
+  el.recipSave.onclick = function () {
+    var recipients = {};
+    Array.prototype.forEach.call(el.recipList.children, function (row) {
+      var toIn = row.querySelectorAll('input[data-block="to"]');
+      var attnIn = row.querySelectorAll('input[data-block="attn"]');
+      var entry = { to: Array.prototype.map.call(toIn, function (i) { return i.value; }) };
+      if (attnIn.length) entry.attn = Array.prototype.map.call(attnIn, function (i) { return i.value; });
+      recipients[row.dataset.form] = entry;
+    });
+    recipStatus('Saving…');
+    window.parent.postMessage({ type: 'rc:saveRecipients', payload: { recipients: recipients } }, '*');
+  };
 
   /* ---------------- routing table ---------------- */
   function drawRouting() {
@@ -576,11 +670,30 @@
       } else {
         log('Could not save PDFs: ' + (p.error || 'unknown error'), 'err');
       }
+    } else if (msg.type === 'rc:setRecipients') {
+      recipOverrides = (msg.payload && msg.payload.recipients) || {};
+      fillRecipientInputs();
+      applyRecipientOverrides();
+      pvDirty = true; sync();
+    } else if (msg.type === 'rc:recipientsSaved') {
+      var rp = msg.payload || {};
+      if (rp.ok) {
+        recipOverrides = rp.recipients || recipOverrides;
+        fillRecipientInputs();
+        applyRecipientOverrides();
+        pvDirty = true; sync();
+        recipStatus('Saved.', 'ok');
+        log('Saved recipient address changes.', 'ok');
+      } else {
+        recipStatus('Could not save: ' + (rp.error || 'unknown error'), 'err');
+        log('Could not save recipient addresses: ' + (rp.error || 'unknown error'), 'err');
+      }
     }
   });
 
   /* ---------------- init ---------------- */
   drawRouting();
+  drawRecipients();
   var today = new Date();
   el.dateIn.value = today.getFullYear() + '-' +
     String(today.getMonth() + 1).padStart(2, '0') + '-' +

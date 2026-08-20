@@ -12,7 +12,7 @@ import SettingsView from './screens/SettingsView.jsx';
 import AppShell from './screens/AppShell.jsx';
 import SplashScreen from './components/SplashScreen.jsx';
 import WelcomeEntranceScreen from './components/WelcomeEntranceScreen.jsx';
-import ExitAppButton from './components/ExitAppButton.jsx';
+import AboutBadge from './components/AboutBadge.jsx';
 
 // Splash stays up at least this long even if boot resolves instantly, so
 // it reads as an intentional cinematic intro rather than a flash.
@@ -322,7 +322,7 @@ export default function App() {
 
   return (
     <>
-      <ExitAppButton />
+      <AboutBadge />
       {!booting && (
         <AppContext.Provider value={ctxValue}>
           {screen === 'chooseMode' && <ChooseModeScreen />}

@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Col, DatePicker, Divider, Form, Input, InputNumber, message, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography } from 'antd';
-import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { Alert, Avatar, Button, Divider, Form, Input, message, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
+import { CameraOutlined, DeleteOutlined, EditOutlined, UserOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { ApiClient } from '../api/apiClient.js';
 import { useServerEvents } from '../hooks/useServerEvents.js';
 import { useApp } from '../AppContext.jsx';
 import ImportCasesModal from '../components/ImportCasesModal.jsx';
 import ImportActiveSupervisionModal from '../components/ImportActiveSupervisionModal.jsx';
+import CaseProfileFields from '../components/CaseProfileFields.jsx';
+import PhotoCapture from '../components/PhotoCapture.jsx';
 import { STAGE_COLORS, STATUS_COLORS } from '../constants/statusColors.js';
-import { CIVIL_STATUS_OPTIONS } from '../constants/psirOptions.js';
 import { composeName } from '../utils/composeName.js';
+import { buildPsirProfilePatch } from '../utils/buildPsirProfilePatch.js';
+import { blankProfileFormValues, defaultPriorRecords, priorRecordsFromFields, profileFormValues } from '../utils/caseProfileDefaults.js';
+import { PSIR_PHOTO_SLOT, dataUrlToBase64, fitImageToSlot } from '../utils/psirPhoto.js';
+import { reportValidationError } from '../utils/formValidation.js';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 export default function DashboardView() {
   const { enums, user, openCase } = useApp();
@@ -34,9 +39,21 @@ export default function DashboardView() {
   const [editCase, setEditCase] = useState(null);
   const [editForm] = Form.useForm();
   const [editError, setEditError] = useState('');
+  const [editReassignTo, setEditReassignTo] = useState();
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const searchTimeoutRef = useRef(null);
+
+  // Prior-records table state for whichever of New Case / Edit Case is open
+  // (only one is ever open at once) — same lifted-state pattern CaseDetailView
+  // uses for its Case Information tab. See CaseProfileFields.jsx.
+  const [newCasePriorRecords, setNewCasePriorRecords] = useState(defaultPriorRecords());
+  const [editCasePriorRecords, setEditCasePriorRecords] = useState(defaultPriorRecords());
+
+  // New Case has no probationer id yet to upload a photo against, so it's
+  // held as a plain data URL until createCase() has one (see there).
+  const [newCasePhoto, setNewCasePhoto] = useState(null);
+  const [newCasePhotoModalOpen, setNewCasePhotoModalOpen] = useState(false);
 
   useEffect(() => {
     ApiClient.get('/users').then(setOfficers).catch((err) => setError(err.message));
@@ -93,27 +110,30 @@ export default function DashboardView() {
 
   function openNewCase() {
     newCaseForm.resetFields();
+    // Same "brand-new case" defaults CaseDetailView.load() seeds for a fresh
+    // psir_profile — keeps the two forms' starting state identical.
+    newCaseForm.setFieldsValue(blankProfileFormValues());
+    setNewCasePriorRecords(defaultPriorRecords());
+    setNewCasePhoto(null);
     setNewCaseError('');
     setNewCaseOpen(true);
   }
 
   async function createCase() {
     setNewCaseError('');
-    const values = await newCaseForm.validateFields();
     setCreating(true);
     try {
-      await ApiClient.post('/probationers', {
+      const values = await newCaseForm.validateFields();
+      const created = await ApiClient.post('/probationers', {
         firstName: values.firstName.trim(),
         middleName: values.middleName?.trim() || '',
         lastName: values.lastName.trim(),
         age: values.age ?? null,
         docketNumber: values.docketNumber.trim(),
         address: values.address?.trim() || '',
-        offense: values.offense?.trim() || '',
         offenseType: values.offenseType || null,
         courtBranch: values.courtBranch?.trim() || '',
         judge: values.judge?.trim() || '',
-        convictionDate: values.convictionDate ? values.convictionDate.format('YYYY-MM-DD') : null,
         caseNumber: values.caseNumber?.trim() || '',
         dateOfOrder: values.dateOfOrder ? values.dateOfOrder.format('YYYY-MM-DD') : null,
         dateOrderReceived: values.dateOrderReceived ? values.dateOrderReceived.format('YYYY-MM-DD') : null,
@@ -128,10 +148,24 @@ export default function DashboardView() {
         remarks: values.remarks?.trim() || '',
         ...(isAdmin && values.assignedOfficerId ? { assignedOfficerId: values.assignedOfficerId } : {}),
       });
+      // 2. PSIR profile (everything beyond the core case record — see
+      // CaseProfileFields.jsx) — same two-call pattern as CaseDetailView's
+      // saveCaseInfo(), just against the id we just created.
+      const psirPatch = buildPsirProfilePatch(values, newCasePriorRecords);
+      if (newCasePhoto) {
+        // 3. Reference photo — mirrors CaseDetailView.savePhoto(): saved as
+        // the case's photo on file, and also fitted into the PSIR profile's
+        // photo slot so Generate PSIR starts pre-filled with it.
+        await ApiClient.post(`/probationers/${created.id}/photo`, { dataUrl: newCasePhoto });
+        const fitted = await fitImageToSlot(newCasePhoto);
+        psirPatch.media = { [PSIR_PHOTO_SLOT.path]: dataUrlToBase64(fitted) };
+      }
+      await ApiClient.patch(`/probationers/${created.id}/psir-profile`, psirPatch);
       setNewCaseOpen(false);
       message.success(`Case for ${composeName({ first_name: values.firstName, middle_name: values.middleName, last_name: values.lastName })} created.`);
       await loadDashboard();
     } catch (err) {
+      if (reportValidationError(err)) return;
       setNewCaseError(err.message);
     } finally {
       setCreating(false);
@@ -147,11 +181,9 @@ export default function DashboardView() {
       age: record.birthdate ? dayjs().diff(dayjs(record.birthdate), 'year') : record.age,
       docketNumber: record.docket_number,
       address: record.address,
-      offense: record.offense,
       offenseType: record.offense_type,
       courtBranch: record.court_branch,
       judge: record.judge,
-      convictionDate: record.conviction_date ? dayjs(record.conviction_date) : null,
       caseNumber: record.case_number,
       dateOfOrder: record.date_of_order ? dayjs(record.date_of_order) : null,
       dateOrderReceived: record.date_order_received ? dayjs(record.date_order_received) : null,
@@ -164,26 +196,31 @@ export default function DashboardView() {
       maritalStatus: record.marital_status,
       contactNumber: record.contact_number,
       remarks: record.remarks,
+      ...profileFormValues(record),
     });
+    setEditCasePriorRecords(priorRecordsFromFields(record.psir_profile?.fields || {}));
+    setEditReassignTo(record.assigned_officer_id);
     setEditCase(record);
   }
 
   async function saveEditCase() {
     setEditError('');
-    const values = await editForm.validateFields();
     setSaving(true);
     try {
+      const values = await editForm.validateFields();
       await ApiClient.patch(`/probationers/${editCase.id}`, {
+        // Docket number is admin-only on the server — only send it when this
+        // user is an admin, otherwise the whole PATCH is rejected with 403
+        // (matches CaseDetailView.saveCaseInfo()).
+        ...(isAdmin ? { docketNumber: values.docketNumber?.trim() || '' } : {}),
         firstName: values.firstName.trim(),
         middleName: values.middleName?.trim() || '',
         lastName: values.lastName.trim(),
         age: values.age ?? null,
         address: values.address?.trim() || '',
-        offense: values.offense?.trim() || '',
         offenseType: values.offenseType || null,
         courtBranch: values.courtBranch?.trim() || '',
         judge: values.judge?.trim() || '',
-        convictionDate: values.convictionDate ? values.convictionDate.format('YYYY-MM-DD') : null,
         caseNumber: values.caseNumber?.trim() || '',
         dateOfOrder: values.dateOfOrder ? values.dateOfOrder.format('YYYY-MM-DD') : null,
         dateOrderReceived: values.dateOrderReceived ? values.dateOrderReceived.format('YYYY-MM-DD') : null,
@@ -197,10 +234,19 @@ export default function DashboardView() {
         contactNumber: values.contactNumber?.trim() || '',
         remarks: values.remarks?.trim() || '',
       });
+      // Admins can reassign from this form; the officer change goes through
+      // its dedicated endpoint (records an audit entry) — same as
+      // CaseDetailView.saveCaseInfo().
+      if (isAdmin && editReassignTo && editReassignTo !== editCase.assigned_officer_id) {
+        await ApiClient.patch(`/probationers/${editCase.id}/reassign`, { assignedOfficerId: editReassignTo });
+      }
+      // 2. PSIR profile — same two-call pattern as CaseDetailView.saveCaseInfo().
+      await ApiClient.patch(`/probationers/${editCase.id}/psir-profile`, buildPsirProfilePatch(values, editCasePriorRecords));
       setEditCase(null);
       message.success('Case updated.');
       await loadDashboard();
     } catch (err) {
+      if (reportValidationError(err)) return;
       setEditError(err.message);
     } finally {
       setSaving(false);
@@ -389,76 +435,68 @@ export default function DashboardView() {
         onOk={createCase}
         confirmLoading={creating}
         okText="Create Case"
-        width={760}
-        styles={{ body: { maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 } }}
+        width={1100}
+        styles={{ body: { maxHeight: '75vh', overflowY: 'auto', paddingRight: 8 } }}
       >
-        <Form form={newCaseForm} className="case-modal-form" layout="vertical" size="large">
-          <Divider orientation="center" className="section-title">Identifying Data</Divider>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} sm={12}><Form.Item label="Last Name" name="lastName" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="First Name" name="firstName" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Middle Name" name="middleName"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Alias" name="alias"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Birthdate" name="birthdate">
-                <DatePicker
-                  style={{ width: '100%' }}
-                  onChange={(d) => newCaseForm.setFieldValue('age', d ? dayjs().diff(d, 'year') : null)}
+        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+          Fields marked <Text type="danger">*</Text> are required. Everything else can be filled in now or completed later on Case Information.
+        </Text>
+        <Form form={newCaseForm} className="case-modal-form" layout="vertical" size="large" scrollToFirstError={{ behavior: 'smooth', block: 'center' }}>
+          <CaseProfileFields
+            // Remount on every open so leftover internal state (Sentencing-
+            // field mirror tracking, etc.) from a previous New Case attempt
+            // doesn't bleed into this one.
+            key={newCaseOpen}
+            form={newCaseForm}
+            enums={enums}
+            officers={officers}
+            isAdmin={isAdmin}
+            priorRecords={newCasePriorRecords}
+            setPriorRecords={setNewCasePriorRecords}
+            docketDisabled={false}
+            assignedOfficerField="form"
+            collapseExtras
+            photoSlot={(
+              <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <Avatar
+                  size={110}
+                  shape="circle"
+                  src={newCasePhoto}
+                  icon={<UserOutlined />}
+                  style={{ border: '1px solid #d9d9d9', background: '#f5f5f5' }}
                 />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Age" name="age" tooltip="Auto-computed from birthdate">
-                <InputNumber style={{ width: '100%' }} disabled />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Sex" name="sex">
-                <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Marital Status" name="maritalStatus">
-                <Select allowClear options={CIVIL_STATUS_OPTIONS.map((v) => ({ label: v, value: v }))} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}><Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Address" name="address"><Input /></Form.Item></Col>
-          </Row>
-
-          <Divider orientation="center" className="section-title">Court &amp; Case Data</Divider>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} sm={12}><Form.Item label="Docket #" name="docketNumber" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Offense" name="offense"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Offense Classification" name="offenseType">
-                <Select allowClear options={(enums.OFFENSE_TYPES || []).map((v) => ({ label: v, value: v }))} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}><Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Judge" name="judge"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Date of Order" name="dateOfOrder" tooltip="Date the court issued the order"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Date of Order Received in Office" name="dateOrderReceived" tooltip="Date the order was received in this office"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            {isAdmin && (
-              <Col xs={24} sm={12}>
-                <Form.Item label="Assigned Officer" name="assignedOfficerId">
-                  <Select options={officers.map((o) => ({ label: o.full_name, value: o.id }))} allowClear />
-                </Form.Item>
-              </Col>
+                <Space size={4}>
+                  <Button size="small" icon={<CameraOutlined />} onClick={() => setNewCasePhotoModalOpen(true)}>
+                    {newCasePhoto ? 'Change' : 'Add'}
+                  </Button>
+                  {newCasePhoto && (
+                    <Popconfirm title="Remove this photo?" onConfirm={() => setNewCasePhoto(null)}>
+                      <Button size="small" danger icon={<DeleteOutlined />}>Remove</Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              </div>
             )}
-          </Row>
-
-          <Divider orientation="center" className="section-title">Supervision</Divider>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} sm={12}><Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0 (yrs-mos-days)" /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24}><Form.Item label="Remarks" name="remarks"><Input.TextArea rows={2} /></Form.Item></Col>
-          </Row>
+          />
           {newCaseError && <Alert type="error" message={newCaseError} showIcon />}
         </Form>
+      </Modal>
+
+      <Modal
+        title={newCasePhoto ? 'Change Photo' : 'Add Photo'}
+        open={newCasePhotoModalOpen}
+        onCancel={() => setNewCasePhotoModalOpen(false)}
+        footer={null}
+        destroyOnClose
+        width={620}
+      >
+        <PhotoCapture
+          existingPhoto={newCasePhoto}
+          onSave={async (dataUrl) => {
+            setNewCasePhoto(dataUrl);
+            setNewCasePhotoModalOpen(false);
+          }}
+        />
       </Modal>
 
       <Modal
@@ -468,67 +506,24 @@ export default function DashboardView() {
         onOk={saveEditCase}
         confirmLoading={saving}
         okText="Save"
-        width={760}
-        styles={{ body: { maxHeight: '65vh', overflowY: 'auto', paddingRight: 8 } }}
+        width={1100}
+        styles={{ body: { maxHeight: '75vh', overflowY: 'auto', paddingRight: 8 } }}
       >
-        <Form form={editForm} className="case-modal-form" layout="vertical" size="large">
-          <Divider orientation="center" className="section-title">Identifying Data</Divider>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} sm={12}><Form.Item label="Last Name" name="lastName" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="First Name" name="firstName" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Middle Name" name="middleName"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Alias" name="alias"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Birthdate" name="birthdate">
-                <DatePicker
-                  style={{ width: '100%' }}
-                  onChange={(d) => editForm.setFieldValue('age', d ? dayjs().diff(d, 'year') : null)}
-                />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Age" name="age" tooltip="Auto-computed from birthdate">
-                <InputNumber style={{ width: '100%' }} disabled />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Sex" name="sex">
-                <Select options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]} allowClear />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Marital Status" name="maritalStatus">
-                <Select allowClear options={CIVIL_STATUS_OPTIONS.map((v) => ({ label: v, value: v }))} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}><Form.Item label="Contact Number" name="contactNumber"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Address" name="address"><Input /></Form.Item></Col>
-          </Row>
-
-          <Divider orientation="center" className="section-title">Court &amp; Case Data</Divider>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} sm={12}><Form.Item label="Docket #" name="docketNumber"><Input disabled /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Case Number" name="caseNumber"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Offense" name="offense"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}>
-              <Form.Item label="Offense Classification" name="offenseType">
-                <Select allowClear options={(enums.OFFENSE_TYPES || []).map((v) => ({ label: v, value: v }))} />
-              </Form.Item>
-            </Col>
-            <Col xs={24} sm={12}><Form.Item label="Court Branch" name="courtBranch"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Judge" name="judge"><Input /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Conviction Date" name="convictionDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Date of Order" name="dateOfOrder" tooltip="Date the court issued the order"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Date of Order Received in Office" name="dateOrderReceived" tooltip="Date the order was received in this office"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-          </Row>
-
-          <Divider orientation="center" className="section-title">Supervision</Divider>
-          <Row gutter={[16, 0]}>
-            <Col xs={24} sm={12}><Form.Item label="Supervision Period" name="supervisionPeriod"><Input placeholder="e.g. 1-0-0 (yrs-mos-days)" /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Supervision Start Date" name="supervisionStartDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} sm={12}><Form.Item label="Supervision End Date" name="supervisionEndDate"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24}><Form.Item label="Remarks" name="remarks"><Input.TextArea rows={2} /></Form.Item></Col>
-          </Row>
+        <Form form={editForm} className="case-modal-form" layout="vertical" size="large" scrollToFirstError={{ behavior: 'smooth', block: 'center' }}>
+          <CaseProfileFields
+            // Remount per case being edited — same reason as CaseDetailView.
+            key={editCase?.id}
+            form={editForm}
+            enums={enums}
+            officers={officers}
+            isAdmin={isAdmin}
+            priorRecords={editCasePriorRecords}
+            setPriorRecords={setEditCasePriorRecords}
+            docketDisabled={!isAdmin}
+            assignedOfficerField="external"
+            reassignTo={editReassignTo}
+            setReassignTo={setEditReassignTo}
+          />
           {editError && <Alert type="error" message={editError} showIcon />}
         </Form>
       </Modal>
